@@ -1,0 +1,10 @@
+INSERT INTO public.exercises (name, muscle_group, description, image_url, video_url)
+VALUES
+  ('Barbell Back Squat', 'legs', 'Compound lift targeting quads, glutes, and core stability.', 'https://cdn.example.com/images/exercises/back-squat.jpg', 'https://cdn.example.com/videos/exercises/back-squat.mp4'),
+  ('Romanian Deadlift', 'hamstrings', 'Hip-hinge movement emphasizing hamstrings and posterior chain.', 'https://cdn.example.com/images/exercises/romanian-deadlift.jpg', 'https://cdn.example.com/videos/exercises/romanian-deadlift.mp4'),
+  ('Incline Dumbbell Press', 'chest', 'Dumbbell press on incline bench to isolate upper chest.', 'https://cdn.example.com/images/exercises/incline-press.jpg', 'https://cdn.example.com/videos/exercises/incline-press.mp4'),
+  ('Pull-Up', 'back', 'Bodyweight vertical pull to develop lats and upper back.', 'https://cdn.example.com/images/exercises/pull-up.jpg', 'https://cdn.example.com/videos/exercises/pull-up.mp4'),
+  ('Standing Overhead Press', 'shoulders', 'Strict press for deltoids and triceps engagement.', 'https://cdn.example.com/images/exercises/overhead-press.jpg', 'https://cdn.example.com/videos/exercises/overhead-press.mp4'),
+  ('Cable Face Pull', 'rear Delts', 'Cable movement correcting posture and strengthening rotator cuff.', 'https://cdn.example.com/images/exercises/face-pull.jpg', 'https://cdn.example.com/videos/exercises/face-pull.mp4'),
+  ('Bulgarian Split Squat', 'legs', 'Single-leg squat variation enhancing balance and unilateral strength.', 'https://cdn.example.com/images/exercises/bulgarian-split-squat.jpg', 'https://cdn.example.com/videos/exercises/bulgarian-split-squat.mp4'),
+  ('Plank Shoulder Tap', 'abs', 'Anti-rotation core drill with alternating shoulder taps.', 'https://cdn.example.com/images/exercises/plank-shoulder-tap.jpg', 'https://cdn.example.com/videos/exercises/plank-shoulder-tap.mp4');
