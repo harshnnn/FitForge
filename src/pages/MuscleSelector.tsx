@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Zap } from "lucide-react";
-import ThreeScene from "@/components/ThreeScene";
+
+// Lazy load the ThreeScene component
+const ThreeScene = lazy(() => import("@/components/ThreeScene"));
 
 const MuscleSelector = () => {
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
@@ -83,7 +85,7 @@ const MuscleSelector = () => {
               <CardDescription>Click on muscles to explore exercises</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="aspect-square bg-muted rounded-lg overflow-hidden">
+              <div className="aspect-square min-h-[300px] bg-muted rounded-lg overflow-hidden">
                 <ThreeScene gender={gender} onMuscleSelect={setSelectedMuscle} />
               </div>
             </CardContent>

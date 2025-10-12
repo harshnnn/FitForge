@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 interface ThreeSceneProps {
   gender: string;
@@ -22,6 +23,7 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
   const highlightedMeshRef = useRef<THREE.Mesh | null>(null);
   const muscleMeshMapRef = useRef<Record<string, THREE.Mesh[]>>({});
   const highlightedKeysRef = useRef<string[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -61,30 +63,78 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
     const highlightColor = highlightColorRef.current;
     const baseEmissive = baseEmissiveRef.current;
 
-    const meshNameOverrides: Record<string, { key: string; label: string }> = {
-      lower_chest: { key: "chest_lower", label: "Lower Chest" },
-      middle_chest: { key: "chest_middle", label: "Middle Chest" },
-      upper_chest_left: { key: "chest_upper_left", label: "Upper Chest (Left)" },
-      upper_chest_right: { key: "chest_upper_right", label: "Upper Chest (Right)" },
-      Object_23: { key: "chest_full", label: "Chest" },
-      Object_5: { key: "shoulders", label: "Shoulders" },
-      Object_13: { key: "back", label: "Back" },
-    };
 
+ 
+
+    const meshNameOverrides: Record<string, { key: string; label: string; group?: string }> = {
+      //Upper Body
+      neck: { key: "neck", label: "Neck" },
+      //Shoulder
+      upper_traps: { key: "upper traps", label: "Upper Traps", group: "Shoulder" },
+      side_delts: { key: "Side delts", label: "Side Delts", group: "Shoulder" },
+      side_delps: { key: "Front delts", label: "Front Delts", group: "Shoulder" },
+      rear_delts: { key: "Rear delts", label: "Rear Delts", group: "Shoulder" },
+
+      //Chest
+      lower_chest: { key: "chest_lower", label: "Lower Chest", group: "Chest" },
+      middle_chest: { key: "chest_middle", label: "Middle Chest", group: "Chest" },
+      upper_chest_left: { key: "chest_upper_left", label: "Upper Chest (Left)", group: "Chest" },
+      upper_chest_right: { key: "chest_upper_right", label: "Upper Chest (Right)", group: "Chest" },
+
+      //Mid section
+      abs: { key: "abs", label: "Abs", group: "Core" },
+      obliques: { key: "obliques", label: "Obliques", group: "Core" },
+      serratus_anterior: { key: "serratus_anterior", label: "Serratus anterior", group: "Core" },
+
+      //Arms
+      biceps: { key: "Biceps", label: "Biceps", group: "Arms" },
+      triceps001: { key: "triceps", label: "Triceps", group: "Arms" },
+      forearms: { key: "forearms", label: "Forearms", group: "Arms" },
+
+      //Back
+      mid_traps: { key: "Mid Traps", label: "Mid Back", group: "Back" },
+      lower_traps: { key: "Lower Traps", label: "Mid Back", group: "Back" },
+      teres_major: { key: "Teres Major", label: "Mid Back", group: "Back" },
+      infraspinatus: { key: "infraspinatus", label: "Mid Back", group: "Back" },
+      lats: { key: "lats", label: "Lats", group: "Back" },
+      lower_back: { key: "lower_back", label: "Lower Back", group: "Back" },
+      //Lower Body
+      glutes: { key: "glutes", label: "Glutes" },
+      adductors: { key: "adductors", label: "Adductors" },
+      quads: { key: "quads", label: "Quads" },
+      hamstrings: { key: "hamstrings", label: "Hamstrings" },
+      shin: { key: "shin", label: "Shin" },
+      calves: { key: "calves", label: "Calves" },
+
+    };
+   
+    
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
     const loader = new GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
+
+    let mixer: THREE.AnimationMixer | null = null;
+
+    // Loader setup
+    setLoading(true);
+
     loader.load(
-      "/3d-models/muscles-updated.glb",
+      "/3d-models/musculature.glb",
       (gltf) => {
         modelRoot = gltf.scene;
         modelRoot.position.y = 10;
-        modelRoot.rotation.set(-0.5, 0, 0); // lock base orientation
+        modelRoot.rotation.set(-0.5, 0, 0);
+
         modelRoot.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
             const mesh = child as THREE.Mesh;
+            console.log("Mesh name:", mesh.name); // <-- Add this line
             const materials = Array.isArray(mesh.material)
               ? mesh.material
               : [mesh.material];
             const override = meshNameOverrides[mesh.name];
+            mesh.userData.interactive = !!override; // Only meshes in meshNameOverrides are interactive
             const muscleLabel = override?.label ?? prettify(mesh.name);
             const muscleKey =
               override?.key ?? normaliseKey(muscleLabel) ?? "unknown";
@@ -112,11 +162,23 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
             muscleMeshMapRef.current[muscleKey].push(mesh);
           }
         });
+
+        console.log("GLTF Animations:", gltf.animations); // <-- Add this line
+
+        if (gltf.animations && gltf.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(modelRoot);
+          mixer.clipAction(gltf.animations[0]).play();
+        }
         scene.add(modelRoot);
+        setLoading(false); // Hide loader when model is loaded
       },
       undefined,
-      (error) => console.error("Failed to load GLTF", error)
+      (error) => {
+        console.error("Failed to load GLTF", error);
+        setLoading(false); // Hide loader on error
+      }
     );
+
 
     // Mouse interaction
     const raycaster = new THREE.Raycaster();
@@ -132,7 +194,11 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
 
       if (intersects.length > 0) {
         const clickedPart = intersects[0].object;
-        if (clickedPart instanceof THREE.Mesh) {
+        if (
+          clickedPart instanceof THREE.Mesh &&
+          clickedPart.userData.interactive
+        ) {
+          console.log("Clicked mesh:", clickedPart.name, clickedPart.userData);
           const { muscleKey, muscleLabel } = clickedPart.userData;
           if (muscleKey) {
             onMuscleSelect(muscleKey);
@@ -190,8 +256,10 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
     containerRef.current.addEventListener("mouseup", onMouseUp);
 
     // Animation loop
+    const clock = new THREE.Clock();
     const animate = () => {
       requestAnimationFrame(animate);
+      if (mixer) mixer.update(clock.getDelta());
       renderer.render(scene, camera);
     };
     animate();
@@ -230,6 +298,7 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
       window.removeEventListener("resize", onResize);
       highlightedKeysRef.current = [];
       muscleMeshMapRef.current = {};
+      mixer = null;
     };
   }, [gender]);
 
@@ -270,7 +339,47 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
     highlightedKeysRef.current = keysToHighlight;
   };
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full h-full min-h-[300px] overflow-hidden"
+      style={{ display: "flex", alignItems: "stretch", justifyContent: "stretch" }}
+    >
+      {loading && (
+        <div
+          className="absolute inset-0 z-10"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ transform: "translateY(8%)" }}>
+            <svg className="animate-spin h-10 w-10 text-accent" viewBox="0 0 24 24">
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+                fill="none"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+              />
+            </svg>
+            <span className="ml-4 text-accent-foreground text-lg font-medium">
+              Loading 3D Model...
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default ThreeScene;
