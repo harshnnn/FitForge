@@ -73,7 +73,7 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
 
     const loader = new GLTFLoader();
     loader.load(
-      "/3d-models/edited-gltf.gltf",
+      "/3d-models/muscles-updated.glb",
       (gltf) => {
         modelRoot = gltf.scene;
         modelRoot.position.y = 10;
