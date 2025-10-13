@@ -6,6 +6,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 interface ThreeSceneProps {
   gender: string;
   onMuscleSelect: (muscle: string) => void;
+  selectedMuscles: string[]; // <-- Add this prop
 }
 
 const linkedMuscles: Record<string, string[]> = {
@@ -13,7 +14,7 @@ const linkedMuscles: Record<string, string[]> = {
   chest_upper_right: ["chest_upper_left", "chest_upper_right"],
 };
 
-const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
+const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -64,16 +65,16 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
     const baseEmissive = baseEmissiveRef.current;
 
 
- 
+
 
     const meshNameOverrides: Record<string, { key: string; label: string; group?: string }> = {
       //Upper Body
       neck: { key: "neck", label: "Neck" },
       //Shoulder
-      upper_traps: { key: "upper traps", label: "Upper Traps", group: "Shoulder" },
-      side_delts: { key: "Side delts", label: "Side Delts", group: "Shoulder" },
-      side_delps: { key: "Front delts", label: "Front Delts", group: "Shoulder" },
-      rear_delts: { key: "Rear delts", label: "Rear Delts", group: "Shoulder" },
+      upper_traps: { key: "upper_traps", label: "Upper Traps", group: "Shoulder" },
+      side_delts: { key: "side_delts", label: "Side Delts", group: "Shoulder" },
+      side_delps: { key: "front_delts", label: "Front Delts", group: "Shoulder" },
+      rear_delts: { key: "rear_delts", label: "Rear Delts", group: "Shoulder" },
 
       //Chest
       lower_chest: { key: "chest_lower", label: "Lower Chest", group: "Chest" },
@@ -87,15 +88,15 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
       serratus_anterior: { key: "serratus_anterior", label: "Serratus anterior", group: "Core" },
 
       //Arms
-      biceps: { key: "Biceps", label: "Biceps", group: "Arms" },
+      biceps: { key: "biceps", label: "Biceps", group: "Arms" },
       triceps001: { key: "triceps", label: "Triceps", group: "Arms" },
       forearms: { key: "forearms", label: "Forearms", group: "Arms" },
 
       //Back
-      mid_traps: { key: "Mid Traps", label: "Mid Back", group: "Back" },
-      lower_traps: { key: "Lower Traps", label: "Mid Back", group: "Back" },
-      teres_major: { key: "Teres Major", label: "Mid Back", group: "Back" },
-      infraspinatus: { key: "infraspinatus", label: "Mid Back", group: "Back" },
+      mid_traps: { key: "mid_traps", label: "Mid Traps", group: "Back" },
+      lower_traps: { key: "lower_traps", label: "Lower Traps", group: "Back" },
+      teres_major: { key: "teres_major", label: "Teres Major", group: "Back" },
+      infraspinatus: { key: "infraspinatus", label: "infraspinatus", group: "Back" },
       lats: { key: "lats", label: "Lats", group: "Back" },
       lower_back: { key: "lower_back", label: "Lower Back", group: "Back" },
       //Lower Body
@@ -107,10 +108,41 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
       calves: { key: "calves", label: "Calves" },
 
     };
-   
-    
+
+    // Place this outside your component
+    const groupToMuscles: Record<string, string[]> = {};
+    Object.entries(meshNameOverrides).forEach(([meshKey, { group }]) => {
+      if (group) {
+        if (!groupToMuscles[group]) groupToMuscles[group] = [];
+        groupToMuscles[group].push(meshKey);
+      }
+    });
+
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+
+    // Detect WebAssembly support
+    const isWasmSupported = (() => {
+      try {
+        if (typeof WebAssembly === "object"
+          && typeof WebAssembly.instantiate === "function") {
+          const module = new WebAssembly.Module(
+            Uint8Array.of(
+              0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00
+            )
+          );
+          if (module instanceof WebAssembly.Module)
+            return new WebAssembly.Instance(module) instanceof WebAssembly.Instance;
+        }
+      } catch (e) {}
+      return false;
+    })();
+
+    if (!isWasmSupported) {
+      dracoLoader.setDecoderConfig({ type: "js" });
+      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+    }
+
     const loader = new GLTFLoader();
     loader.setDRACOLoader(dracoLoader);
 
@@ -218,42 +250,72 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
     let isDragging = false;
     let previousMousePosition = { x: 0, y: 0 };
 
+    // --- Mouse events (already present) ---
     const onMouseDown = (e: MouseEvent) => {
       isDragging = true;
       previousMousePosition = { x: e.clientX, y: e.clientY };
     };
-
     const onMouseMove = (e: MouseEvent) => {
       if (isDragging) {
         const deltaMove = {
           x: e.clientX - previousMousePosition.x,
           y: e.clientY - previousMousePosition.y,
         };
-
-        const rotateModel = (deltaX: number, deltaY: number) => {
-          if (!modelRoot) return;
-          modelRoot.rotation.y += deltaX * 0.01;
-          modelRoot.rotation.x = THREE.MathUtils.clamp(
-            modelRoot.rotation.x + deltaY * 0.005,
-            -Math.PI / 6,
-            Math.PI / 6
-          );
-          modelRoot.rotation.z = 0;
-        };
-
         rotateModel(deltaMove.x, deltaMove.y);
-
         previousMousePosition = { x: e.clientX, y: e.clientY };
       }
     };
-
     const onMouseUp = () => {
       isDragging = false;
     };
 
+    // --- Touch events for mobile ---
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        previousMousePosition = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (isDragging && e.touches.length === 1) {
+        const deltaMove = {
+          x: e.touches[0].clientX - previousMousePosition.x,
+          y: e.touches[0].clientY - previousMousePosition.y,
+        };
+        rotateModel(deltaMove.x, deltaMove.y);
+        previousMousePosition = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
+      }
+    };
+    const onTouchEnd = () => {
+      isDragging = false;
+    };
+
+    // --- Helper for rotation ---
+    function rotateModel(deltaX: number, deltaY: number) {
+      if (!modelRoot) return;
+      modelRoot.rotation.y += deltaX * 0.01;
+      modelRoot.rotation.x = THREE.MathUtils.clamp(
+        modelRoot.rotation.x + deltaY * 0.005,
+        -Math.PI / 6,
+        Math.PI / 6
+      );
+      modelRoot.rotation.z = 0;
+    }
+
+    // --- Add event listeners ---
     containerRef.current.addEventListener("mousedown", onMouseDown);
     containerRef.current.addEventListener("mousemove", onMouseMove);
     containerRef.current.addEventListener("mouseup", onMouseUp);
+
+    containerRef.current.addEventListener("touchstart", onTouchStart, { passive: false });
+    containerRef.current.addEventListener("touchmove", onTouchMove, { passive: false });
+    containerRef.current.addEventListener("touchend", onTouchEnd, { passive: false });
 
     // Animation loop
     const clock = new THREE.Clock();
@@ -299,8 +361,21 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
       highlightedKeysRef.current = [];
       muscleMeshMapRef.current = {};
       mixer = null;
+
+      containerRef.current?.removeEventListener("mousedown", onMouseDown);
+      containerRef.current?.removeEventListener("mousemove", onMouseMove);
+      containerRef.current?.removeEventListener("mouseup", onMouseUp);
+
+      containerRef.current?.removeEventListener("touchstart", onTouchStart);
+      containerRef.current?.removeEventListener("touchmove", onTouchMove);
+      containerRef.current?.removeEventListener("touchend", onTouchEnd);
     };
   }, [gender]);
+
+  useEffect(() => {
+    if (!selectedMuscles || selectedMuscles.length === 0) return;
+    highlightMuscles(selectedMuscles);
+  }, [selectedMuscles]);
 
   const highlightMuscle = (muscleKey: string) => {
     const scene = sceneRef.current;
@@ -337,6 +412,44 @@ const ThreeScene = ({ gender, onMuscleSelect }: ThreeSceneProps) => {
     });
 
     highlightedKeysRef.current = keysToHighlight;
+  };
+
+  const highlightMuscles = (muscleKeys: string[]) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    const baseEmissive = baseEmissiveRef.current;
+    const highlightColor = highlightColorRef.current;
+    const muscleMeshMap = muscleMeshMapRef.current;
+
+    // Reset previous highlights
+    const keysToReset = highlightedKeysRef.current;
+    keysToReset.forEach((key) => {
+      const meshes = muscleMeshMap[key] || [];
+      meshes.forEach((mesh) => {
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        materials.forEach((mat) => {
+          if ("emissive" in mat && mat.emissive && typeof (mat.emissive as THREE.Color).copy === "function") {
+            (mat.emissive as THREE.Color).copy(baseEmissive);
+          }
+        });
+      });
+    });
+
+    // Highlight new keys
+    muscleKeys.forEach((key) => {
+      const meshes = muscleMeshMap[key] || [];
+      meshes.forEach((mesh) => {
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        materials.forEach((mat) => {
+          if ("emissive" in mat && mat.emissive && typeof (mat.emissive as THREE.Color).copy === "function") {
+            (mat.emissive as THREE.Color).copy(highlightColor);
+          }
+        });
+      });
+    });
+
+    highlightedKeysRef.current = muscleKeys;
   };
 
   return (
