@@ -1,36 +1,29 @@
-import React, { useState, useEffect, lazy, Suspense, useRef } from "react";
+import React, { useState, lazy, Suspense, useRef } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Zap } from "lucide-react";
-
-// Lazy load the ThreeScene component
-const ThreeScene = lazy(() => import("@/components/ThreeScene"));
-
-import { useMuscleData } from "@/hooks/useMuscleData";
-import { useUserGender } from "@/hooks/useUserGender";
-import { useExercises } from "@/hooks/useExercises";
-
-
-// Use custom hooks for muscle data, gender, and exercises
-const {
-  meshNameOverrides,
-  groupToMuscles,
-  linkedMuscles,
-  backFacingMuscles,
-  sideFacingMuscles,
-  prettify,
-} = useMuscleData();
-const gender = useUserGender();
+import { useMuscleData } from "../hooks/useMuscleData";
+import { useUserGender } from "../hooks/useUserGender";
+import { useExercises } from "../hooks/useExercises";
+import ThreeScene from "@/components/ThreeScene"; // Import the ThreeScene component
 
 const MuscleSelector = () => {
+  const {
+    meshNameOverrides,
+    groupToMuscles,
+    linkedMuscles,
+    backFacingMuscles,
+    sideFacingMuscles,
+    prettify,
+  } = useMuscleData();
+  const gender = useUserGender();
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  // gender and exercises now come from hooks
-  const exercises = useExercises(selectedMuscle);
   const [selectedMuscleLabel, setSelectedMuscleLabel] = useState<string | null>(null);
   const threeSceneRef = useRef<any>(null);
+  const exercises = useExercises(selectedMuscle);
 
   // This array will be passed to ThreeScene for highlighting
   const selectedMuscles =
@@ -42,6 +35,11 @@ const MuscleSelector = () => {
           ? [selectedMuscle]
           : [];
 
+  // Defensive prettify usage for null/undefined
+  const getMuscleLabel = (muscleKey: string | null | undefined) => {
+    if (!muscleKey) return "";
+    return meshNameOverrides[muscleKey]?.label || prettify(muscleKey);
+  };
 
   // All data loading is now handled by hooks
 
@@ -62,111 +60,78 @@ const MuscleSelector = () => {
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-8 mb-8">
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle>Interactive 3D Model</CardTitle>
-              <CardDescription>Click on muscles to explore exercises</CardDescription>
+        <div className="flex flex-col lg:flex-row gap-8 mb-8">
+
+          {/* 3D Model Card */}
+              <Card className="border-border/50 h-[600px] flex-1 shadow-2xl bg-gradient-to-br from-background to-muted/60 rounded-2xl overflow-hidden flex flex-col">
+            <CardHeader className="pb-2 border-b border-border/20 bg-gradient-to-r from-accent/10 to-transparent">
+              <CardTitle className="text-2xl font-bold tracking-tight">3D Model</CardTitle>
+              <CardDescription className="text-base">Select a muscle on the model</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="aspect-square min-h-[300px] bg-muted rounded-lg overflow-hidden">
-                <Suspense fallback={<div>Loading 3D...</div>}>
-                  <ThreeScene
-                    ref={threeSceneRef}
-                    gender={gender}
-                    onMuscleSelect={(muscleKey, muscleLabel) => {
-                      setSelectedMuscle(muscleKey);
-                      setSelectedMuscleLabel(muscleLabel);
-                      setSelectedGroup(null);
-                    }}
-                    selectedMuscles={selectedMuscles}
-                  />
-                </Suspense>
+            <CardContent className="flex-1 flex items-center justify-center p-0">
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted/40 to-background/80">
+                <ThreeScene
+                  ref={threeSceneRef}
+                  selectedMuscles={selectedMuscles}
+                  gender={gender}
+                  onMuscleSelect={(muscleKey, muscleLabel) => {
+                    setSelectedMuscle(muscleKey);
+                    setSelectedMuscleLabel(muscleLabel);
+                    setSelectedGroup(null);
+                  }}
+                  className="w-full h-[500px] max-h-[500px] min-h-[400px] rounded-xl shadow-lg border border-border/30 bg-background"
+                />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-border/50">
+          {/* Muscle Groups Selector - Expandable/Collapsible */}
+          <Card className="border-border/50 w-full max-w-md shadow-xl bg-gradient-to-br from-background to-muted/60">
             <CardHeader>
               <CardTitle>Muscle Groups</CardTitle>
-              <CardDescription>Or select from the list below</CardDescription>
+              <CardDescription>Expand a group to see muscles</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-2">
                 {Object.keys(groupToMuscles).map((group) => (
                   <div key={group} className="mb-2">
                     <button
-                      className={`font-bold capitalize w-full text-left px-2 py-1 rounded ${selectedGroup === group ? "bg-accent" : "hover:bg-muted"}`}
-                      onClick={() => {
-                        setExpandedGroup(group); // Always expand the group when clicked
-                        setSelectedGroup(group); // Set the group as selected
-                        setSelectedMuscle(null); // Clear individual muscle selection
-                      }}
+                      className={`flex items-center justify-between w-full px-4 py-2 rounded-lg font-semibold text-lg transition-all duration-200 shadow-sm border border-border/30 bg-card/80 hover:bg-accent/30 focus:outline-none ${expandedGroup === group ? "bg-accent/40 text-accent-foreground" : ""}`}
+                      onClick={() => setExpandedGroup(expandedGroup === group ? null : group)}
+                      aria-expanded={expandedGroup === group}
                     >
-                      {group}
+                      <span className="capitalize">{group}</span>
+                      <span className={`ml-2 transition-transform ${expandedGroup === group ? "rotate-90" : "rotate-0"}`}>▶</span>
                     </button>
-                    {expandedGroup === group && (
-                      <div className="pl-4">
-                        {group === "Chest" ? (
-                          <>
-                            <button
-                              className={`block w-full text-left px-2 py-1 rounded capitalize ${
-                                (selectedMuscle === "chest_upper_left" || selectedMuscle === "chest_upper_right")
-                                  ? "bg-primary text-white"
-                                  : "hover:bg-muted"
-                              }`}
-                              onClick={() => {
-                                setSelectedMuscle("chest_upper_left");
-                                setSelectedMuscleLabel("Upper Chest");
-                                setSelectedGroup(null);
-                                if (threeSceneRef.current) {
-                                  threeSceneRef.current.rotateTo("front");
-                                }
-                              }}
-                            >
-                              Upper Chest
-                            </button>
-                            {/* Render the rest of the chest muscles except upper left/right */}
-                            {groupToMuscles[group]
-                              .filter(
-                                (muscleKey) =>
-                                  muscleKey !== "chest_upper_left" && muscleKey !== "chest_upper_right"
-                              )
-                              .map((muscleKey) => (
-                                <button
-                                  key={muscleKey}
-                                  className={`block w-full text-left px-2 py-1 rounded capitalize ${
-                                    selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"
-                                  }`}
-                                  onClick={() => {
-                                    setSelectedMuscle(muscleKey);
-                                    setSelectedMuscleLabel(meshNameOverrides[muscleKey]?.label || prettify(muscleKey));
-                                    setSelectedGroup(null);
-                                    if (threeSceneRef.current) {
-                                      if (backFacingMuscles.includes(muscleKey)) {
-                                        threeSceneRef.current.rotateTo("back");
-                                      } else if (sideFacingMuscles.includes(muscleKey)) {
-                                        threeSceneRef.current.rotateTo("side");
-                                      } else {
-                                        threeSceneRef.current.rotateTo("front");
-                                      }
-                                    }
-                                  }}
-                                >
-                                  {meshNameOverrides[muscleKey].label}
-                                </button>
-                              ))}
-                          </>
-                        ) : (
-                          groupToMuscles[group].map((muscleKey) => (
+                    <div
+                      className={`overflow-hidden transition-all duration-300 ${expandedGroup === group ? "max-h-96 opacity-100 py-2" : "max-h-0 opacity-0 py-0"}`}
+                    >
+                      <div className="pl-4 space-y-1">
+                        {group === "Chest" && (
+                          <button
+                            className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${
+                              (selectedMuscle === "chest_upper_left" || selectedMuscle === "chest_upper_right")
+                                ? "bg-primary text-white" : "hover:bg-muted"
+                            }`}
+                            onClick={() => {
+                              setSelectedMuscle("chest_upper_left");
+                              setSelectedMuscleLabel("Upper Chest");
+                              setSelectedGroup(null);
+                              if (threeSceneRef.current) threeSceneRef.current.rotateTo("front");
+                            }}
+                          >
+                            Upper Chest
+                          </button>
+                        )}
+                        {groupToMuscles[group]
+                          .filter((muscleKey) => group !== "Chest" || (muscleKey !== "chest_upper_left" && muscleKey !== "chest_upper_right"))
+                          .map((muscleKey) => (
                             <button
                               key={muscleKey}
-                              className={`block w-full text-left px-2 py-1 rounded capitalize ${
-                                selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"
-                              }`}
+                              className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"}`}
                               onClick={() => {
                                 setSelectedMuscle(muscleKey);
-                                setSelectedMuscleLabel(meshNameOverrides[muscleKey]?.label || prettify(muscleKey));
+                                setSelectedMuscleLabel(getMuscleLabel(muscleKey));
                                 setSelectedGroup(null);
                                 if (threeSceneRef.current) {
                                   if (backFacingMuscles.includes(muscleKey)) {
@@ -181,49 +146,53 @@ const MuscleSelector = () => {
                             >
                               {meshNameOverrides[muscleKey].label}
                             </button>
-                          ))
-                        )}
+                          ))}
                       </div>
-                    )}
+                    </div>
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
-        </div>
 
-        {selectedMuscle && (
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle className="capitalize">
-                {selectedMuscleLabel || meshNameOverrides[selectedMuscle]?.label || prettify(selectedMuscle)} Exercises
-              </CardTitle>
-              <CardDescription>
-                {exercises.length} exercise{exercises.length !== 1 ? "s" : ""} found
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {exercises.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">
-                  No exercises found for this muscle group yet.
-                </p>
-              ) : (
-                <div className="grid md:grid-cols-2 gap-4">
-                  {exercises.map((exercise) => (
-                    <Card key={exercise.id} className="border-border/30 hover:border-primary/50 transition-colors">
-                      <CardHeader>
-                        <CardTitle className="text-lg">{exercise.name}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-sm text-muted-foreground">{exercise.description}</p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+          {/* Exercises Panel - Slide-in on selection */}
+          <div className={`fixed top-0 right-0 h-full w-full max-w-lg z-50 bg-background/95 shadow-2xl border-l border-border/40 transform transition-transform duration-500 ${selectedMuscle ? "translate-x-0" : "translate-x-full"}`}>
+            <div className="p-6 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold capitalize">
+                  {selectedMuscleLabel || getMuscleLabel(selectedMuscle)} Exercises
+                </h2>
+                <button
+                  className="ml-2 p-2 rounded-full hover:bg-muted transition-colors"
+                  onClick={() => setSelectedMuscle(null)}
+                  aria-label="Close exercises panel"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {exercises.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">
+                    No exercises found for this muscle group yet.
+                  </p>
+                ) : (
+                  <div className="grid md:grid-cols-1 gap-4">
+                    {exercises.map((exercise) => (
+                      <Card key={exercise.id} className="border-border/30 hover:border-primary/50 transition-colors bg-card/90">
+                        <CardHeader>
+                          <CardTitle className="text-lg">{exercise.name}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">{exercise.description}</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </Layout>
   );

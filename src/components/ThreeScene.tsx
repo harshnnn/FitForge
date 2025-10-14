@@ -7,6 +7,7 @@ interface ThreeSceneProps {
   gender: string;
   onMuscleSelect: (muscle: string, label: string) => void;
   selectedMuscles: string[];
+  className?: string;
 }
 
 const linkedMuscles: Record<string, string[]> = {
@@ -14,7 +15,7 @@ const linkedMuscles: Record<string, string[]> = {
   chest_upper_right: ["chest_upper_left", "chest_upper_right"],
 };
 
-const ThreeScene = forwardRef(({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps, ref) => {
+const ThreeScene = forwardRef(({ gender, onMuscleSelect, selectedMuscles, className }: ThreeSceneProps, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -491,7 +492,7 @@ const ThreeScene = forwardRef(({ gender, onMuscleSelect, selectedMuscles }: Thre
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full min-h-[300px] overflow-hidden"
+      className={`relative w-full h-full min-h-[300px] overflow-hidden ${className || ""}`}
       style={{ display: "flex", alignItems: "stretch", justifyContent: "stretch" }}
     >
       {loading && (
