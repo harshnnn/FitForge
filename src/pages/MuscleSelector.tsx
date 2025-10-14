@@ -75,9 +75,13 @@ const linkedMuscles: Record<string, string[]> = {
 
 const backFacingMuscles = [
   "triceps",
-  "mid_traps", "lower_traps", "teres_major", "infraspinatus", "lats", "lower_back",
+  "rear_delts","upper_traps","mid_traps", "lower_traps", "teres_major", "infraspinatus", "lats", "lower_back",
   "glutes", "hamstrings", "calves"
 ];
+
+const sideFacingMuscles = [
+  "side_delts", "serratus_anterior"
+]
 
 const MuscleSelector = () => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
@@ -212,9 +216,12 @@ const MuscleSelector = () => {
                                   : "hover:bg-muted"
                               }`}
                               onClick={() => {
-                                setSelectedMuscle("chest_upper_left"); // or "chest_upper_right", doesn't matter
+                                setSelectedMuscle("chest_upper_left");
                                 setSelectedMuscleLabel("Upper Chest");
                                 setSelectedGroup(null);
+                                if (threeSceneRef.current) {
+                                  threeSceneRef.current.rotateTo("front");
+                                }
                               }}
                             >
                               Upper Chest
@@ -238,6 +245,8 @@ const MuscleSelector = () => {
                                     if (threeSceneRef.current) {
                                       if (backFacingMuscles.includes(muscleKey)) {
                                         threeSceneRef.current.rotateTo("back");
+                                      } else if (sideFacingMuscles.includes(muscleKey)) {
+                                        threeSceneRef.current.rotateTo("side");
                                       } else {
                                         threeSceneRef.current.rotateTo("front");
                                       }
@@ -262,6 +271,8 @@ const MuscleSelector = () => {
                                 if (threeSceneRef.current) {
                                   if (backFacingMuscles.includes(muscleKey)) {
                                     threeSceneRef.current.rotateTo("back");
+                                  } else if (sideFacingMuscles.includes(muscleKey)) {
+                                    threeSceneRef.current.rotateTo("side");
                                   } else {
                                     threeSceneRef.current.rotateTo("front");
                                   }

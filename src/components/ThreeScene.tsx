@@ -32,9 +32,13 @@ const ThreeScene = forwardRef(({ gender, onMuscleSelect, selectedMuscles }: Thre
   const animationFrameRef = useRef<number | null>(null);
 
   useImperativeHandle(ref, () => ({
-    rotateTo: (direction: "front" | "back") => {
+    rotateTo: (direction: "front" | "back" | "side") => {
       if (!modelRootRef.current) return;
-      const targetY = direction === "front" ? 0 : Math.PI;
+      // 0 = front, Math.PI = back, Math.PI/2 = side (right), -Math.PI/2 = side (left)
+      let targetY = 0;
+      if (direction === "front") targetY = 0;
+      else if (direction === "back") targetY = Math.PI;
+      else if (direction === "side") targetY = Math.PI / 2;
       targetYRef.current = targetY;
       if (!animationFrameRef.current) animateRotation();
     },
