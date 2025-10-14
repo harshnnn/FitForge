@@ -2,7 +2,7 @@ import React, { useState, lazy, Suspense, useRef } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Zap } from "lucide-react";
+import { Zap, Menu } from "lucide-react";
 import { useMuscleData } from "../hooks/useMuscleData";
 import { useUserGender } from "../hooks/useUserGender";
 import { useExercises } from "../hooks/useExercises";
@@ -22,6 +22,7 @@ const MuscleSelector = () => {
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [selectedMuscleLabel, setSelectedMuscleLabel] = useState<string | null>(null);
+  const [mobileGroupsOpen, setMobileGroupsOpen] = useState(false);
   const threeSceneRef = useRef<any>(null);
   const exercises = useExercises(selectedMuscle);
 
@@ -60,13 +61,138 @@ const MuscleSelector = () => {
           </p>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-8 mb-8">
+        <div className="relative flex flex-col lg:flex-row gap-8 mb-8">
+          {/* Mobile Muscle Groups Drawer Button */}
+          {/* <button
+            className="lg:hidden fixed top-6 left-4 z-50 p-3 rounded-full bg-accent text-accent-foreground shadow-lg focus:outline-none focus:ring-2 focus:ring-accent/50"
+            onClick={() => setMobileGroupsOpen(true)}
+            aria-label="Open muscle groups"
+            style={{ boxShadow: "0 2px 16px 0 rgba(0,0,0,0.12)" }}
+          >
+            <Menu className="w-6 h-6" />
+          </button> */}
 
-          {/* 3D Model Card */}
-              <Card className="border-border/50 h-[600px] flex-1 shadow-2xl bg-gradient-to-br from-background to-muted/60 rounded-2xl overflow-hidden flex flex-col">
-            <CardHeader className="pb-2 border-b border-border/20 bg-gradient-to-r from-accent/10 to-transparent">
-              <CardTitle className="text-2xl font-bold tracking-tight">3D Model</CardTitle>
-              <CardDescription className="text-base">Select a muscle on the model</CardDescription>
+          {/* Muscle Groups Panel (Drawer on mobile, card on desktop) */}
+          <div>
+            {/* Overlay for mobile drawer */}
+            {mobileGroupsOpen && (
+              <div
+                className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity lg:hidden"
+                onClick={() => setMobileGroupsOpen(false)}
+                aria-label="Close muscle groups overlay"
+              />
+            )}
+            <Card
+              className={`border-border/50 w-full max-w-xs shadow-xl bg-gradient-to-br from-background to-muted/60 transition-transform duration-300 z-50
+                fixed top-0 left-0 h-full overflow-y-auto lg:static lg:translate-x-0
+                ${mobileGroupsOpen ? "translate-x-0" : "-translate-x-full"} lg:block`}
+              style={{ minWidth: "240px" }}
+            >
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Muscle Groups</CardTitle>
+                  <CardDescription>Expand a group to see muscles</CardDescription>
+                </div>
+                {/* Close button for mobile */}
+                <button
+                  className="lg:hidden ml-2 p-2 rounded-full hover:bg-muted transition-colors"
+                  onClick={() => setMobileGroupsOpen(false)}
+                  aria-label="Close muscle groups"
+                >
+                  ✕
+                </button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {Object.keys(groupToMuscles).map((group) => (
+                    <div key={group} className="mb-2">
+                      <button
+                        className={`flex items-center justify-between w-full px-4 py-2 rounded-lg font-semibold text-lg transition-all duration-200 shadow-sm border border-border/30 bg-card/80 hover:bg-accent/30 focus:outline-none ${expandedGroup === group ? "bg-accent/40 text-accent-foreground" : ""}`}
+                        onClick={() => {
+                          if (expandedGroup === group) {
+                            setExpandedGroup(null);
+                            setSelectedGroup(null);
+                          } else {
+                            setExpandedGroup(group);
+                            setSelectedGroup(group); // Select all muscles in this group in the 3D model
+                            setSelectedMuscle(null);
+                            setSelectedMuscleLabel(null);
+                          }
+                        }}
+                        aria-expanded={expandedGroup === group}
+                      >
+                        <span className="capitalize">{group}</span>
+                        <span className={`ml-2 transition-transform ${expandedGroup === group ? "rotate-90" : "rotate-0"}`}>▶</span>
+                      </button>
+                      <div
+                        className={`overflow-hidden transition-all duration-300 ${expandedGroup === group ? "max-h-96 opacity-100 py-2" : "max-h-0 opacity-0 py-0"}`}
+                      >
+                        <div className="pl-4 space-y-1">
+                          {group === "Chest" && (
+                            <button
+                              className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${
+                                (selectedMuscle === "chest_upper_left" || selectedMuscle === "chest_upper_right")
+                                  ? "bg-primary text-white" : "hover:bg-muted"
+                              }`}
+                              onClick={() => {
+                                setSelectedMuscle("chest_upper_left");
+                                setSelectedMuscleLabel("Upper Chest");
+                                setSelectedGroup(null);
+                                if (threeSceneRef.current) threeSceneRef.current.rotateTo("front");
+                              }}
+                            >
+                              Upper Chest
+                            </button>
+                          )}
+                          {groupToMuscles[group]
+                            .filter((muscleKey) => group !== "Chest" || (muscleKey !== "chest_upper_left" && muscleKey !== "chest_upper_right"))
+                            .map((muscleKey) => (
+                              <button
+                                key={muscleKey}
+                                className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"}`}
+                                onClick={() => {
+                                  setSelectedMuscle(muscleKey);
+                                  setSelectedMuscleLabel(getMuscleLabel(muscleKey));
+                                  setSelectedGroup(null);
+                                  if (threeSceneRef.current) {
+                                    if (backFacingMuscles.includes(muscleKey)) {
+                                      threeSceneRef.current.rotateTo("back");
+                                    } else if (sideFacingMuscles.includes(muscleKey)) {
+                                      threeSceneRef.current.rotateTo("side");
+                                    } else {
+                                      threeSceneRef.current.rotateTo("front");
+                                    }
+                                  }
+                                }}
+                              >
+                                {meshNameOverrides[muscleKey].label}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* 3D Model Card (always visible, fills space) */}
+          <Card className="border-border/50 h-[600px] flex-1 shadow-2xl bg-gradient-to-br from-background to-muted/60 rounded-2xl overflow-hidden flex flex-col relative">
+            <CardHeader className="pb-2 border-b border-border/20 bg-gradient-to-r from-accent/10 to-transparent flex flex-row items-center justify-between relative">
+              <div>
+                <CardTitle className="text-2xl font-bold tracking-tight">3D Model</CardTitle>
+                <CardDescription className="text-base">Select a muscle on the model</CardDescription>
+              </div>
+              {/* Mobile Muscle Groups Drawer Button - floating, glassy, and visually integrated */}
+              <button
+                className="lg:hidden absolute top-4 right-4 z-30 p-3 rounded-full bg-white/70 backdrop-blur-md text-accent-foreground shadow-xl border border-border/30 hover:bg-accent/90 hover:text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                onClick={() => setMobileGroupsOpen(true)}
+                aria-label="Open muscle groups"
+                style={{ boxShadow: "0 4px 24px 0 rgba(0,0,0,0.14)" }}
+              >
+                <Menu className="w-6 h-6" />
+              </button>
             </CardHeader>
             <CardContent className="flex-1 flex items-center justify-center p-0">
               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted/40 to-background/80">
@@ -81,76 +207,6 @@ const MuscleSelector = () => {
                   }}
                   className="w-full h-[500px] max-h-[500px] min-h-[400px] rounded-xl shadow-lg border border-border/30 bg-background"
                 />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Muscle Groups Selector - Expandable/Collapsible */}
-          <Card className="border-border/50 w-full max-w-md shadow-xl bg-gradient-to-br from-background to-muted/60">
-            <CardHeader>
-              <CardTitle>Muscle Groups</CardTitle>
-              <CardDescription>Expand a group to see muscles</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {Object.keys(groupToMuscles).map((group) => (
-                  <div key={group} className="mb-2">
-                    <button
-                      className={`flex items-center justify-between w-full px-4 py-2 rounded-lg font-semibold text-lg transition-all duration-200 shadow-sm border border-border/30 bg-card/80 hover:bg-accent/30 focus:outline-none ${expandedGroup === group ? "bg-accent/40 text-accent-foreground" : ""}`}
-                      onClick={() => setExpandedGroup(expandedGroup === group ? null : group)}
-                      aria-expanded={expandedGroup === group}
-                    >
-                      <span className="capitalize">{group}</span>
-                      <span className={`ml-2 transition-transform ${expandedGroup === group ? "rotate-90" : "rotate-0"}`}>▶</span>
-                    </button>
-                    <div
-                      className={`overflow-hidden transition-all duration-300 ${expandedGroup === group ? "max-h-96 opacity-100 py-2" : "max-h-0 opacity-0 py-0"}`}
-                    >
-                      <div className="pl-4 space-y-1">
-                        {group === "Chest" && (
-                          <button
-                            className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${
-                              (selectedMuscle === "chest_upper_left" || selectedMuscle === "chest_upper_right")
-                                ? "bg-primary text-white" : "hover:bg-muted"
-                            }`}
-                            onClick={() => {
-                              setSelectedMuscle("chest_upper_left");
-                              setSelectedMuscleLabel("Upper Chest");
-                              setSelectedGroup(null);
-                              if (threeSceneRef.current) threeSceneRef.current.rotateTo("front");
-                            }}
-                          >
-                            Upper Chest
-                          </button>
-                        )}
-                        {groupToMuscles[group]
-                          .filter((muscleKey) => group !== "Chest" || (muscleKey !== "chest_upper_left" && muscleKey !== "chest_upper_right"))
-                          .map((muscleKey) => (
-                            <button
-                              key={muscleKey}
-                              className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"}`}
-                              onClick={() => {
-                                setSelectedMuscle(muscleKey);
-                                setSelectedMuscleLabel(getMuscleLabel(muscleKey));
-                                setSelectedGroup(null);
-                                if (threeSceneRef.current) {
-                                  if (backFacingMuscles.includes(muscleKey)) {
-                                    threeSceneRef.current.rotateTo("back");
-                                  } else if (sideFacingMuscles.includes(muscleKey)) {
-                                    threeSceneRef.current.rotateTo("side");
-                                  } else {
-                                    threeSceneRef.current.rotateTo("front");
-                                  }
-                                }
-                              }}
-                            >
-                              {meshNameOverrides[muscleKey].label}
-                            </button>
-                          ))}
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </CardContent>
           </Card>
