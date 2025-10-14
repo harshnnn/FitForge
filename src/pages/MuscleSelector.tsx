@@ -1,5 +1,4 @@
 import React, { useState, useEffect, lazy, Suspense, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,87 +7,28 @@ import { Zap } from "lucide-react";
 // Lazy load the ThreeScene component
 const ThreeScene = lazy(() => import("@/components/ThreeScene"));
 
-function prettify(name = ""): string {
-  return name
-    .replace(/[_\-]+/g, " ")
-    .replace(/\d+/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-// --- Place this outside your component ---
-type MeshNameOverride = {
-  label: string;
-  group?: string;
-  // add other properties if needed
-};
-const meshNameOverrides: Record<string, MeshNameOverride> = {
-  //Upper Body
-  neck: { label: "Neck" },
-  //Shoulder
-  upper_traps: { label: "Upper traps", group: "Shoulder" },
-  side_delts: { label: "Side Delts", group: "Shoulder" },
-  front_delts: { label: "Front Delts", group: "Shoulder" },
-  rear_delts: { label: "Rear Delts", group: "Shoulder" },
-  //Chest
-  chest_lower: { label: "Lower Chest", group: "Chest" },
-  chest_middle: { label: "Middle Chest", group: "Chest" },
-  chest_upper_left: { label: "Upper Chest (Left)", group: "Chest" },
-  chest_upper_right: { label: "Upper Chest (Right)", group: "Chest" },
-  //Mid section
-  abs: { label: "Abs", group: "Core" },
-  obliques: { label: "Obliques", group: "Core" },
-  serratus_anterior: { label: "Serratus anterior", group: "Core" },
-  //Arms
-  biceps: { label: "Biceps", group: "Arms" },
-  triceps: { label: "Triceps", group: "Arms" },
-  forearms: { label: "Forearms", group: "Arms" },
-  //Back
-  mid_traps: { label: "Mid Traps", group: "Back" },
-  lower_traps: { label: "Lower Traps", group: "Back" },
-  teres_major: { label: "Teres Major", group: "Back" },
-  infraspinatus: { label: "Infraspinatus", group: "Back" },
-  lats: { label: "Lats", group: "Back" },
-  lower_back: { label: "Lower Back", group: "Back" },
-  //Lower Body
-  glutes: { label: "Glutes", group: "Legs" },
-  adductors: { label: "Adductors", group: "Legs" },
-  quads: { label: "Quads", group: "Legs" },
-  hamstrings: { label: "Hamstrings", group: "Legs" },
-  shin: { label: "Shin", group: "Legs" },
-  calves: { label: "Calves", group: "Legs" },
-};
-const groupToMuscles: Record<string, string[]> = {};
-Object.entries(meshNameOverrides).forEach(([meshKey, value]) => {
-  const group = value.group;
-  if (group) {
-    if (!groupToMuscles[group]) groupToMuscles[group] = [];
-    groupToMuscles[group].push(meshKey);
-  }
-});
+import { useMuscleData } from "@/hooks/useMuscleData";
+import { useUserGender } from "@/hooks/useUserGender";
+import { useExercises } from "@/hooks/useExercises";
 
-// Add this mapping at the top of your component (outside the render)
-const linkedMuscles: Record<string, string[]> = {
-  chest_upper_left: ["chest_upper_left", "chest_upper_right"],
-  chest_upper_right: ["chest_upper_left", "chest_upper_right"],
-};
 
-const backFacingMuscles = [
-  "triceps",
-  "rear_delts","upper_traps","mid_traps", "lower_traps", "teres_major", "infraspinatus", "lats", "lower_back",
-  "glutes", "hamstrings", "calves"
-];
-
-const sideFacingMuscles = [
-  "side_delts", "serratus_anterior"
-]
+// Use custom hooks for muscle data, gender, and exercises
+const {
+  meshNameOverrides,
+  groupToMuscles,
+  linkedMuscles,
+  backFacingMuscles,
+  sideFacingMuscles,
+  prettify,
+} = useMuscleData();
+const gender = useUserGender();
 
 const MuscleSelector = () => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [gender, setGender] = useState<string>("male");
-  const [exercises, setExercises] = useState<any[]>([]);
+  // gender and exercises now come from hooks
+  const exercises = useExercises(selectedMuscle);
   const [selectedMuscleLabel, setSelectedMuscleLabel] = useState<string | null>(null);
   const threeSceneRef = useRef<any>(null);
 
@@ -102,48 +42,8 @@ const MuscleSelector = () => {
           ? [selectedMuscle]
           : [];
 
-  useEffect(() => {
-    loadUserGender();
-  }, []);
 
-  useEffect(() => {
-    if (selectedMuscle) {
-      loadExercises();
-    }
-  }, [selectedMuscle]);
-
-  const loadUserGender = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("profiles")
-        .select("gender")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (data?.gender) {
-        setGender(data.gender);
-      }
-    } catch (error) {
-      console.error("Error loading gender:", error);
-    }
-  };
-
-  const loadExercises = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("exercises")
-        .select("*")
-        .eq("muscle_group", selectedMuscle);
-
-      if (error) throw error;
-      setExercises(data || []);
-    } catch (error) {
-      console.error("Error loading exercises:", error);
-    }
-  };
+  // All data loading is now handled by hooks
 
   return (
     <Layout>
