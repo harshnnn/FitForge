@@ -1,12 +1,12 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 interface ThreeSceneProps {
   gender: string;
-  onMuscleSelect: (muscle: string) => void;
-  selectedMuscles: string[]; // <-- Add this prop
+  onMuscleSelect: (muscle: string, label: string) => void;
+  selectedMuscles: string[];
 }
 
 const linkedMuscles: Record<string, string[]> = {
@@ -14,7 +14,7 @@ const linkedMuscles: Record<string, string[]> = {
   chest_upper_right: ["chest_upper_left", "chest_upper_right"],
 };
 
-const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps) => {
+const ThreeScene = forwardRef(({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -25,6 +25,40 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
   const muscleMeshMapRef = useRef<Record<string, THREE.Mesh[]>>({});
   const highlightedKeysRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Reference to the model root
+  const modelRootRef = useRef<THREE.Object3D | null>(null);
+  const targetYRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    rotateTo: (direction: "front" | "back") => {
+      if (!modelRootRef.current) return;
+      const targetY = direction === "front" ? 0 : Math.PI;
+      targetYRef.current = targetY;
+      if (!animationFrameRef.current) animateRotation();
+    },
+  }));
+
+  function animateRotation() {
+    if (!modelRootRef.current || targetYRef.current === null) {
+      animationFrameRef.current = null;
+      return;
+    }
+    const currentY = modelRootRef.current.rotation.y;
+    const targetY = targetYRef.current;
+    let delta = targetY - currentY;
+    if (delta > Math.PI) delta -= 2 * Math.PI;
+    if (delta < -Math.PI) delta += 2 * Math.PI;
+    if (Math.abs(delta) < 0.01) {
+      modelRootRef.current.rotation.y = targetY;
+      targetYRef.current = null;
+      animationFrameRef.current = null;
+      return;
+    }
+    modelRootRef.current.rotation.y += delta * 0.15;
+    animationFrameRef.current = requestAnimationFrame(animateRotation);
+  }
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -60,7 +94,7 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
     scene.add(directionalLight);
 
     // Load 3D model
-    let modelRoot: THREE.Object3D | null = null;
+    let mixer: THREE.AnimationMixer | null = null;
     const highlightColor = highlightColorRef.current;
     const baseEmissive = baseEmissiveRef.current;
 
@@ -128,13 +162,13 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
           && typeof WebAssembly.instantiate === "function") {
           const module = new WebAssembly.Module(
             Uint8Array.of(
-              0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00
+              0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00
             )
           );
           if (module instanceof WebAssembly.Module)
             return new WebAssembly.Instance(module) instanceof WebAssembly.Instance;
         }
-      } catch (e) {}
+      } catch (e) { }
       return false;
     })();
 
@@ -146,15 +180,14 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
     const loader = new GLTFLoader();
     loader.setDRACOLoader(dracoLoader);
 
-    let mixer: THREE.AnimationMixer | null = null;
-
     // Loader setup
     setLoading(true);
 
     loader.load(
       "/3d-models/musculature.glb",
       (gltf) => {
-        modelRoot = gltf.scene;
+        modelRootRef.current = gltf.scene;
+        let modelRoot = gltf.scene;
         modelRoot.position.y = 10;
         modelRoot.rotation.set(-0.5, 0, 0);
 
@@ -230,15 +263,14 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
           clickedPart instanceof THREE.Mesh &&
           clickedPart.userData.interactive
         ) {
-          console.log("Clicked mesh:", clickedPart.name, clickedPart.userData);
           const { muscleKey, muscleLabel } = clickedPart.userData;
-          if (muscleKey) {
-            onMuscleSelect(muscleKey);
+          // Special logic for upper chest sides
+          if (muscleKey === "chest_upper_left" || muscleKey === "chest_upper_right") {
+            onMuscleSelect("chest_upper_left", "Upper Chest");
+            highlightMuscle("chest_upper_left");
+          } else {
+            onMuscleSelect(muscleKey, muscleLabel);
             highlightMuscle(muscleKey);
-          } else if (muscleLabel) {
-            const normalised = normaliseKey(muscleLabel);
-            onMuscleSelect(normalised);
-            highlightMuscle(normalised);
           }
         }
       }
@@ -298,14 +330,14 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
 
     // --- Helper for rotation ---
     function rotateModel(deltaX: number, deltaY: number) {
-      if (!modelRoot) return;
-      modelRoot.rotation.y += deltaX * 0.01;
-      modelRoot.rotation.x = THREE.MathUtils.clamp(
-        modelRoot.rotation.x + deltaY * 0.005,
+      if (!modelRootRef.current) return;
+      modelRootRef.current.rotation.y += deltaX * 0.01;
+      modelRootRef.current.rotation.x = THREE.MathUtils.clamp(
+        modelRootRef.current.rotation.x + deltaY * 0.005,
         -Math.PI / 6,
         Math.PI / 6
       );
-      modelRoot.rotation.z = 0;
+      modelRootRef.current.rotation.z = 0;
     }
 
     // --- Add event listeners ---
@@ -343,8 +375,8 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
     return () => {
       containerRef.current?.removeChild(renderer.domElement);
       renderer.dispose();
-      if (modelRoot) {
-        modelRoot.traverse((child) => {
+      if (modelRootRef.current) {
+        modelRootRef.current.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
             const mesh = child as THREE.Mesh;
             const materialArray = Array.isArray(mesh.material)
@@ -493,7 +525,7 @@ const ThreeScene = ({ gender, onMuscleSelect, selectedMuscles }: ThreeSceneProps
       )}
     </div>
   );
-};
+});
 
 export default ThreeScene;
 function prettify(name = ""): string {

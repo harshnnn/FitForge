@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, { useState, useEffect, lazy, Suspense, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,14 @@ import { Zap } from "lucide-react";
 // Lazy load the ThreeScene component
 const ThreeScene = lazy(() => import("@/components/ThreeScene"));
 
+function prettify(name = ""): string {
+  return name
+    .replace(/[_\-]+/g, " ")
+    .replace(/\d+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 // --- Place this outside your component ---
 type MeshNameOverride = {
   label: string;
@@ -43,12 +51,12 @@ const meshNameOverrides: Record<string, MeshNameOverride> = {
   lats: { label: "Lats", group: "Back" },
   lower_back: { label: "Lower Back", group: "Back" },
   //Lower Body
-  glutes: { label: "Glutes", group:"Legs" },
-  adductors: { label: "Adductors", group:"Legs" },
-  quads: { label: "Quads" , group:"Legs"},
-  hamstrings: { label: "Hamstrings", group:"Legs" },
-  shin: { label: "Shin" , group:"Legs"},
-  calves: { label: "Calves" , group:"Legs"},
+  glutes: { label: "Glutes", group: "Legs" },
+  adductors: { label: "Adductors", group: "Legs" },
+  quads: { label: "Quads", group: "Legs" },
+  hamstrings: { label: "Hamstrings", group: "Legs" },
+  shin: { label: "Shin", group: "Legs" },
+  calves: { label: "Calves", group: "Legs" },
 };
 const groupToMuscles: Record<string, string[]> = {};
 Object.entries(meshNameOverrides).forEach(([meshKey, value]) => {
@@ -59,19 +67,36 @@ Object.entries(meshNameOverrides).forEach(([meshKey, value]) => {
   }
 });
 
+// Add this mapping at the top of your component (outside the render)
+const linkedMuscles: Record<string, string[]> = {
+  chest_upper_left: ["chest_upper_left", "chest_upper_right"],
+  chest_upper_right: ["chest_upper_left", "chest_upper_right"],
+};
+
+const backFacingMuscles = [
+  "triceps",
+  "mid_traps", "lower_traps", "teres_major", "infraspinatus", "lats", "lower_back",
+  "glutes", "hamstrings", "calves"
+];
+
 const MuscleSelector = () => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [gender, setGender] = useState<string>("male");
   const [exercises, setExercises] = useState<any[]>([]);
+  const [selectedMuscleLabel, setSelectedMuscleLabel] = useState<string | null>(null);
+  const threeSceneRef = useRef<any>(null);
 
   // This array will be passed to ThreeScene for highlighting
-  const selectedMuscles = selectedGroup
-    ? groupToMuscles[selectedGroup]
-    : selectedMuscle
-      ? [selectedMuscle]
-      : [];
+  const selectedMuscles =
+    selectedGroup
+      ? groupToMuscles[selectedGroup]
+      : selectedMuscle && linkedMuscles[selectedMuscle]
+        ? linkedMuscles[selectedMuscle]
+        : selectedMuscle
+          ? [selectedMuscle]
+          : [];
 
   useEffect(() => {
     loadUserGender();
@@ -143,8 +168,13 @@ const MuscleSelector = () => {
               <div className="aspect-square min-h-[300px] bg-muted rounded-lg overflow-hidden">
                 <Suspense fallback={<div>Loading 3D...</div>}>
                   <ThreeScene
+                    ref={threeSceneRef}
                     gender={gender}
-                    onMuscleSelect={setSelectedMuscle}
+                    onMuscleSelect={(muscleKey, muscleLabel) => {
+                      setSelectedMuscle(muscleKey);
+                      setSelectedMuscleLabel(muscleLabel);
+                      setSelectedGroup(null);
+                    }}
                     selectedMuscles={selectedMuscles}
                   />
                 </Suspense>
@@ -173,18 +203,75 @@ const MuscleSelector = () => {
                     </button>
                     {expandedGroup === group && (
                       <div className="pl-4">
-                        {groupToMuscles[group].map((muscleKey) => (
-                          <button
-                            key={muscleKey}
-                            className={`block w-full text-left px-2 py-1 rounded capitalize ${selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"}`}
-                            onClick={() => {
-                              setSelectedMuscle(muscleKey);
-                              setSelectedGroup(null);
-                            }}
-                          >
-                            {meshNameOverrides[muscleKey].label}
-                          </button>
-                        ))}
+                        {group === "Chest" ? (
+                          <>
+                            <button
+                              className={`block w-full text-left px-2 py-1 rounded capitalize ${
+                                (selectedMuscle === "chest_upper_left" || selectedMuscle === "chest_upper_right")
+                                  ? "bg-primary text-white"
+                                  : "hover:bg-muted"
+                              }`}
+                              onClick={() => {
+                                setSelectedMuscle("chest_upper_left"); // or "chest_upper_right", doesn't matter
+                                setSelectedMuscleLabel("Upper Chest");
+                                setSelectedGroup(null);
+                              }}
+                            >
+                              Upper Chest
+                            </button>
+                            {/* Render the rest of the chest muscles except upper left/right */}
+                            {groupToMuscles[group]
+                              .filter(
+                                (muscleKey) =>
+                                  muscleKey !== "chest_upper_left" && muscleKey !== "chest_upper_right"
+                              )
+                              .map((muscleKey) => (
+                                <button
+                                  key={muscleKey}
+                                  className={`block w-full text-left px-2 py-1 rounded capitalize ${
+                                    selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"
+                                  }`}
+                                  onClick={() => {
+                                    setSelectedMuscle(muscleKey);
+                                    setSelectedMuscleLabel(meshNameOverrides[muscleKey]?.label || prettify(muscleKey));
+                                    setSelectedGroup(null);
+                                    if (threeSceneRef.current) {
+                                      if (backFacingMuscles.includes(muscleKey)) {
+                                        threeSceneRef.current.rotateTo("back");
+                                      } else {
+                                        threeSceneRef.current.rotateTo("front");
+                                      }
+                                    }
+                                  }}
+                                >
+                                  {meshNameOverrides[muscleKey].label}
+                                </button>
+                              ))}
+                          </>
+                        ) : (
+                          groupToMuscles[group].map((muscleKey) => (
+                            <button
+                              key={muscleKey}
+                              className={`block w-full text-left px-2 py-1 rounded capitalize ${
+                                selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"
+                              }`}
+                              onClick={() => {
+                                setSelectedMuscle(muscleKey);
+                                setSelectedMuscleLabel(meshNameOverrides[muscleKey]?.label || prettify(muscleKey));
+                                setSelectedGroup(null);
+                                if (threeSceneRef.current) {
+                                  if (backFacingMuscles.includes(muscleKey)) {
+                                    threeSceneRef.current.rotateTo("back");
+                                  } else {
+                                    threeSceneRef.current.rotateTo("front");
+                                  }
+                                }
+                              }}
+                            >
+                              {meshNameOverrides[muscleKey].label}
+                            </button>
+                          ))
+                        )}
                       </div>
                     )}
                   </div>
@@ -197,7 +284,9 @@ const MuscleSelector = () => {
         {selectedMuscle && (
           <Card className="border-border/50">
             <CardHeader>
-              <CardTitle className="capitalize">{selectedMuscle} Exercises</CardTitle>
+              <CardTitle className="capitalize">
+                {selectedMuscleLabel || meshNameOverrides[selectedMuscle]?.label || prettify(selectedMuscle)} Exercises
+              </CardTitle>
               <CardDescription>
                 {exercises.length} exercise{exercises.length !== 1 ? "s" : ""} found
               </CardDescription>
