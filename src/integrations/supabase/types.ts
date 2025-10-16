@@ -166,6 +166,81 @@ export type Database = {
         }
         Relationships: []
       }
+      user_custom_plans: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_custom_plan_exercises: {
+        Row: {
+          created_at: string | null
+          day_of_week: Database["public"]["Enums"]["day_of_week"]
+          exercise_id: string
+          id: string
+          notes: string | null
+          reps: string
+          sets: number
+          user_custom_plan_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          day_of_week: Database["public"]["Enums"]["day_of_week"]
+          exercise_id: string
+          id?: string
+          notes?: string | null
+          reps: string
+          sets: number
+          user_custom_plan_id: string
+        }
+        Update: {
+          created_at?: string | null
+          day_of_week?: Database["public"]["Enums"]["day_of_week"]
+          exercise_id?: string
+          id?: string
+          notes?: string | null
+          reps?: string
+          sets?: number
+          user_custom_plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_custom_plan_exercises_exercise_id_fkey"
+            columns: ["exercise_id"]
+            isOneToOne: false
+            referencedRelation: "exercises"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_custom_plan_exercises_user_custom_plan_id_fkey"
+            columns: ["user_custom_plan_id"]
+            isOneToOne: false
+            referencedRelation: "user_custom_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workout_plan_exercises: {
         Row: {
           day_number: number
@@ -250,6 +325,7 @@ export type Database = {
       }
     }
     Enums: {
+      day_of_week: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday"
       gender_type: "male" | "female"
       workout_goal:
         | "aesthetic"
@@ -384,6 +460,15 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      day_of_week: [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+      ],
       gender_type: ["male", "female"],
       workout_goal: [
         "aesthetic",

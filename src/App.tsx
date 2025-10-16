@@ -13,6 +13,7 @@ import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
 import MuscleSelector from "./pages/MuscleSelector";
 import Workouts from "./pages/Workouts";
+import CustomPlanCreator from "./pages/CustomPlanCreator";
 import Supplements from "./pages/Supplements";
 import Community from "./pages/Community";
 import NotFound from "./pages/NotFound";
@@ -83,6 +84,14 @@ const App = () => (
                 <GuestAwareRoute>
                   <Workouts />
                 </GuestAwareRoute>
+              }
+            />
+            <Route
+              path="/create-plan"
+              element={
+                <AuthOnlyRoute>
+                  <CustomPlanCreator />
+                </AuthOnlyRoute>
               }
             />
             <Route
