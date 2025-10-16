@@ -1,14 +1,44 @@
-import React, { useState, lazy, Suspense, useRef } from "react";
+import React, { useState, lazy, Suspense, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Zap, Menu } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Zap, Menu, Plus, Calendar } from "lucide-react";
 import { useMuscleData } from "../hooks/useMuscleData";
 import { useUserGender } from "../hooks/useUserGender";
 import { useExercises } from "../hooks/useExercises";
+import { useAuth } from "../hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import ThreeScene from "@/components/ThreeScene"; // Import the ThreeScene component
+import { toast } from "sonner";
+
+// Types
+interface CustomPlan {
+  id: string;
+  name: string;
+  description: string | null;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Exercise {
+  id: string;
+  name: string;
+  description: string | null;
+  muscle_group: string;
+  image_url: string | null;
+  video_url: string | null;
+}
 
 const MuscleSelector = () => {
+  const navigate = useNavigate();
   const {
     meshNameOverrides,
     groupToMuscles,
@@ -26,6 +56,48 @@ const MuscleSelector = () => {
   const threeSceneRef = useRef<any>(null);
   const exercises = useExercises(selectedMuscle);
 
+  // Modal and form state
+  const [isAddToPlanModalOpen, setIsAddToPlanModalOpen] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [customPlans, setCustomPlans] = useState<CustomPlan[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState<string>("");
+  const [sets, setSets] = useState<number>(3);
+  const [reps, setReps] = useState<string>("8-12");
+  const [dayOfWeek, setDayOfWeek] = useState<string>("monday");
+  const [notes, setNotes] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isCreatingPlan, setIsCreatingPlan] = useState(false);
+  const [newPlanName, setNewPlanName] = useState<string>("");
+  const [newPlanDescription, setNewPlanDescription] = useState<string>("");
+
+  const { isAuthenticated } = useAuth();
+
+  // Fetch custom plans when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      const fetchCustomPlans = async () => {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) return;
+
+          const { data, error } = await supabase
+            .from("user_custom_plans")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false });
+
+          if (error) throw error;
+          setCustomPlans(data || []);
+        } catch (error) {
+          console.error("Error fetching custom plans:", error);
+        }
+      };
+      fetchCustomPlans();
+    } else {
+      setCustomPlans([]);
+    }
+  }, [isAuthenticated]);
+
   // This array will be passed to ThreeScene for highlighting
   const selectedMuscles =
     selectedGroup
@@ -40,6 +112,93 @@ const MuscleSelector = () => {
   const getMuscleLabel = (muscleKey: string | null | undefined) => {
     if (!muscleKey) return "";
     return meshNameOverrides[muscleKey]?.label || prettify(muscleKey);
+  };
+
+  // Handle adding exercise to custom plan
+  const handleAddToPlan = (exercise: Exercise) => {
+    if (!isAuthenticated) {
+      toast.error("Please log in to add exercises to custom plans.");
+      return;
+    }
+    setSelectedExercise(exercise);
+    setIsAddToPlanModalOpen(true);
+  };
+
+  // Handle creating a new plan
+  const handleCreateNewPlan = async () => {
+    if (!newPlanName.trim()) return;
+
+    setIsLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: newPlan, error } = await supabase
+        .from("user_custom_plans")
+        .insert({
+          name: newPlanName.trim(),
+          description: newPlanDescription.trim() || null,
+          user_id: user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Add the new plan to the list
+      setCustomPlans(prev => [newPlan, ...prev]);
+      setSelectedPlanId(newPlan.id);
+      setIsCreatingPlan(false);
+      setNewPlanName("");
+      setNewPlanDescription("");
+
+      toast.success(`Plan "${newPlan.name}" created successfully!`);
+    } catch (error) {
+      console.error("Error creating new plan:", error);
+      toast.error("Failed to create plan. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle adding exercise to selected plan
+  const handleAddExerciseToPlan = async () => {
+    if (!selectedExercise || !selectedPlanId) return;
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from("user_custom_plan_exercises")
+        .insert({
+          user_custom_plan_id: selectedPlanId,
+          exercise_id: selectedExercise.id,
+          day_of_week: dayOfWeek as any,
+          sets: sets,
+          reps: reps,
+          notes: notes.trim() || null,
+        });
+
+      if (error) throw error;
+
+      // Reset form and close modal
+      setIsAddToPlanModalOpen(false);
+      setSelectedExercise(null);
+      setSelectedPlanId("");
+      setSets(3);
+      setReps("8-12");
+      setDayOfWeek("monday");
+      setNotes("");
+      setIsCreatingPlan(false);
+      setNewPlanName("");
+      setNewPlanDescription("");
+
+      toast.success(`"${selectedExercise.name}" added to your plan!`);
+    } catch (error) {
+      console.error("Error adding exercise to plan:", error);
+      toast.error("Failed to add exercise to plan. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // All data loading is now handled by hooks
@@ -271,17 +430,28 @@ const MuscleSelector = () => {
                             </div>
                           </CardHeader>
                           <CardContent>
-                            <p className="text-sm text-muted-foreground mb-2">{exercise.description}</p>
-                            {exercise.video_url && (
-                              <a
-                                href={exercise.video_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-block mt-2 text-primary hover:underline text-xs font-medium"
+                            <p className="text-sm text-muted-foreground mb-3">{exercise.description}</p>
+                            <div className="flex gap-2">
+                              {exercise.video_url && (
+                                <a
+                                  href={exercise.video_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                                >
+                                  ▶ Watch Video
+                                </a>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleAddToPlan(exercise)}
+                                className="inline-flex items-center gap-1.5 text-xs font-medium border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground transition-colors ml-auto"
                               >
-                                ▶ Watch Video
-                              </a>
-                            )}
+                                <Plus className="w-3 h-3" />
+                                Add to Plan
+                              </Button>
+                            </div>
                           </CardContent>
                         </Card>
                       ))}
@@ -292,6 +462,164 @@ const MuscleSelector = () => {
           </div>
         </div>
       </div>
+
+      {/* Add to Plan Modal */}
+      <Dialog open={isAddToPlanModalOpen} onOpenChange={setIsAddToPlanModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add Exercise to Custom Plan</DialogTitle>
+            <DialogDescription>
+              Add "{selectedExercise?.name}" to one of your custom workout plans.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Plan Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="plan-select">Select Plan</Label>
+              {customPlans.length > 0 ? (
+                <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a plan..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customPlans.map((plan) => (
+                      <SelectItem key={plan.id} value={plan.id}>
+                        {plan.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-sm text-muted-foreground">No custom plans found. Create one below.</p>
+              )}
+            </div>
+
+            {/* Create New Plan Toggle */}
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="create-new-plan"
+                checked={isCreatingPlan}
+                onChange={(e) => setIsCreatingPlan(e.target.checked)}
+                className="rounded"
+              />
+              <Label htmlFor="create-new-plan" className="text-sm">
+                Create a new plan instead
+              </Label>
+            </div>
+
+            {/* New Plan Form */}
+            {isCreatingPlan && (
+              <div className="space-y-3 border rounded-lg p-3 bg-muted/50">
+                <div>
+                  <Label htmlFor="new-plan-name">Plan Name</Label>
+                  <Input
+                    id="new-plan-name"
+                    value={newPlanName}
+                    onChange={(e) => setNewPlanName(e.target.value)}
+                    placeholder="e.g., Upper Body Strength"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-plan-description">Description (Optional)</Label>
+                  <Textarea
+                    id="new-plan-description"
+                    value={newPlanDescription}
+                    onChange={(e) => setNewPlanDescription(e.target.value)}
+                    placeholder="Brief description of your plan..."
+                    rows={2}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Exercise Configuration */}
+            {!isCreatingPlan && selectedPlanId && (
+              <div className="space-y-3 border rounded-lg p-3 bg-muted/50">
+                <h4 className="font-medium text-sm">Exercise Configuration</h4>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="sets">Sets</Label>
+                    <Input
+                      id="sets"
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={sets}
+                      onChange={(e) => setSets(parseInt(e.target.value) || 3)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="reps">Reps</Label>
+                    <Input
+                      id="reps"
+                      value={reps}
+                      onChange={(e) => setReps(e.target.value)}
+                      placeholder="8-12"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="day-of-week">Day of Week</Label>
+                  <Select value={dayOfWeek} onValueChange={setDayOfWeek}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monday">Monday</SelectItem>
+                      <SelectItem value="tuesday">Tuesday</SelectItem>
+                      <SelectItem value="wednesday">Wednesday</SelectItem>
+                      <SelectItem value="thursday">Thursday</SelectItem>
+                      <SelectItem value="friday">Friday</SelectItem>
+                      <SelectItem value="saturday">Saturday</SelectItem>
+                      <SelectItem value="sunday">Sunday</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="notes">Notes (Optional)</Label>
+                  <Textarea
+                    id="notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Any specific notes for this exercise..."
+                    rows={2}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAddToPlanModalOpen(false);
+                setSelectedExercise(null);
+                setSelectedPlanId("");
+                setIsCreatingPlan(false);
+                setNewPlanName("");
+                setNewPlanDescription("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={isCreatingPlan ? handleCreateNewPlan : handleAddExerciseToPlan}
+              disabled={
+                isLoading ||
+                (isCreatingPlan ? !newPlanName.trim() : !selectedPlanId)
+              }
+            >
+              {isLoading ? "Loading..." : isCreatingPlan ? "Create Plan" : "Add to Plan"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 };

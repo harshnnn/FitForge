@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ const DAYS_OF_WEEK: { value: DayOfWeek; label: string; short: string }[] = [
 
 const CustomPlanCreator = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [planName, setPlanName] = useState("");
   const [planDescription, setPlanDescription] = useState("");
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -54,6 +55,17 @@ const CustomPlanCreator = () => {
   useEffect(() => {
     loadExercises();
   }, []);
+
+  // Handle pre-selected exercise from MuscleSelector
+  useEffect(() => {
+    const state = location.state as { preSelectedExercise?: Exercise; fromMuscleSelector?: boolean };
+    if (state?.preSelectedExercise && state?.fromMuscleSelector) {
+      setSelectedExercise(state.preSelectedExercise);
+      setShowExerciseDialog(true);
+      // Clear the state to prevent re-triggering
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const loadExercises = async () => {
     try {
