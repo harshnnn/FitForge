@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Dumbbell } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -14,6 +15,7 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { continueAsGuest } = useAuth();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +110,22 @@ const Auth = () => {
             >
               {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
             </button>
+          </div>
+          <div className="mt-6 text-center">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-accent/60 bg-white/80 hover:bg-accent/10 text-accent-foreground shadow"
+              onClick={() => {
+                continueAsGuest();
+                navigate("/workouts");
+              }}
+            >
+              Continue as Guest
+            </Button>
+            <div className="text-xs text-muted-foreground mt-2">
+              Limited features available in guest mode
+            </div>
           </div>
         </CardContent>
       </Card>

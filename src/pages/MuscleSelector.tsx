@@ -233,16 +233,58 @@ const MuscleSelector = () => {
                   </p>
                 ) : (
                   <div className="grid md:grid-cols-1 gap-4">
-                    {exercises.map((exercise) => (
-                      <Card key={exercise.id} className="border-border/30 hover:border-primary/50 transition-colors bg-card/90">
-                        <CardHeader>
-                          <CardTitle className="text-lg">{exercise.name}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-sm text-muted-foreground">{exercise.description}</p>
-                        </CardContent>
-                      </Card>
-                    ))}
+                    {exercises
+                      .slice() // copy array
+                      .sort((a, b) => b.rating - a.rating) // sort by rating descending
+                      .map((exercise) => (
+                        <Card key={exercise.id} className="border-border/30 hover:border-primary/50 transition-colors bg-card/90">
+                          <CardHeader className="flex flex-row items-center gap-4">
+                            <img
+                              src={exercise.image_url}
+                              alt={exercise.name}
+                              className="w-16 h-16 object-cover rounded-lg border border-border/20 shadow"
+                              loading="lazy"
+                            />
+                            <div className="flex-1">
+                              <CardTitle className="text-lg flex items-center gap-2">
+                                {exercise.name}
+                                <span className="flex items-center ml-2">
+                                  {Array.from({ length: 5 }).map((_, i) => (
+                                    <svg
+                                      key={i}
+                                      className={`w-4 h-4 ${i < exercise.rating ? 'text-yellow-400' : 'text-muted-foreground/30'}`}
+                                      fill="currentColor"
+                                      viewBox="0 0 20 20"
+                                    >
+                                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.967a1 1 0 00.95.69h4.175c.969 0 1.371 1.24.588 1.81l-3.38 2.455a1 1 0 00-.364 1.118l1.287 3.966c.3.922-.755 1.688-1.54 1.118l-3.38-2.454a1 1 0 00-1.175 0l-3.38 2.454c-.784.57-1.838-.196-1.54-1.118l1.287-3.966a1 1 0 00-.364-1.118L2.05 9.394c-.783-.57-.38-1.81.588-1.81h4.175a1 1 0 00.95-.69l1.286-3.967z" />
+                                    </svg>
+                                  ))}
+                                </span>
+                              </CardTitle>
+                              <CardDescription className="text-xs text-muted-foreground mt-1">
+                                {exercise.muscle_group && (
+                                  <span className="capitalize font-semibold mr-2 text-accent-foreground/80">
+                                    {getMuscleLabel(exercise.muscle_group)}
+                                  </span>
+                                )}
+                              </CardDescription>
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-sm text-muted-foreground mb-2">{exercise.description}</p>
+                            {exercise.video_url && (
+                              <a
+                                href={exercise.video_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-block mt-2 text-primary hover:underline text-xs font-medium"
+                              >
+                                ▶ Watch Video
+                              </a>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
                   </div>
                 )}
               </div>
