@@ -17,6 +17,7 @@ import CustomPlanCreator from "./pages/CustomPlanCreator";
 import Supplements from "./pages/Supplements";
 import Community from "./pages/Community";
 import NotFound from "./pages/NotFound";
+import ProgressLogger from "./pages/ProgressLogger";
 
 const queryClient = new QueryClient();
 
@@ -67,6 +68,14 @@ const App = () => (
               element={
                 <AuthOnlyRoute>
                   <Profile />
+                </AuthOnlyRoute>
+              }
+            />
+            <Route
+              path="/progress-logger"
+              element={
+                <AuthOnlyRoute>
+                  <ProgressLogger/>
                 </AuthOnlyRoute>
               }
             />

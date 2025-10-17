@@ -310,6 +310,102 @@ export type Database = {
         }
         Relationships: []
       }
+      workout_progress_entries: {
+        Row: {
+          actual_sets: number | null
+          created_at: string | null
+          exercise_id: string
+          id: string
+          notes: string | null
+          planned_reps: string
+          planned_sets: number
+          reps_completed: string | null
+          session_id: string
+          updated_at: string | null
+          weight_unit: string | null
+          weight_used: number | null
+        }
+        Insert: {
+          actual_sets?: number | null
+          created_at?: string | null
+          exercise_id: string
+          id?: string
+          notes?: string | null
+          planned_reps: string
+          planned_sets: number
+          reps_completed?: string | null
+          session_id: string
+          updated_at?: string | null
+          weight_unit?: string | null
+          weight_used?: number | null
+        }
+        Update: {
+          actual_sets?: number | null
+          created_at?: string | null
+          exercise_id?: string
+          id?: string
+          notes?: string | null
+          planned_reps?: string
+          planned_sets?: number
+          reps_completed?: string | null
+          session_id?: string
+          updated_at?: string | null
+          weight_unit?: string | null
+          weight_used?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workout_progress_entries_exercise_id_fkey"
+            columns: ["exercise_id"]
+            isOneToOne: false
+            referencedRelation: "exercises"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workout_progress_entries_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "workout_progress_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workout_progress_sessions: {
+        Row: {
+          created_at: string | null
+          day_identifier: string
+          id: string
+          notes: string | null
+          plan_id: string
+          plan_type: string
+          updated_at: string | null
+          user_id: string
+          workout_date: string
+        }
+        Insert: {
+          created_at?: string | null
+          day_identifier: string
+          id?: string
+          notes?: string | null
+          plan_id: string
+          plan_type: string
+          updated_at?: string | null
+          user_id: string
+          workout_date?: string
+        }
+        Update: {
+          created_at?: string | null
+          day_identifier?: string
+          id?: string
+          notes?: string | null
+          plan_id?: string
+          plan_type?: string
+          updated_at?: string | null
+          user_id?: string
+          workout_date?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

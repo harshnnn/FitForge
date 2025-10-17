@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogClose } from "@/components/ui/dialog";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import "../styles/custom-scrollbar.css";
+import ProgressLogger from "./ProgressLogger";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // 1. ⭐ Strong Typing for Data Integrity & Developer Experience
 interface Exercise {
@@ -518,35 +520,48 @@ const WorkoutsPage = () => {
   return (
     <Layout>
       <div className="container mx-auto px-4 py-8">
-        {/* Professional Header */}
-        <div className="text-center mb-12">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
-            className="flex justify-center mb-6"
-          >
-            <div className="p-6 bg-gradient-to-br from-primary/90 to-secondary/90 rounded-full shadow-glow-primary animate-pulse-slow">
-              <Dumbbell className="w-12 h-12 text-primary-foreground drop-shadow-lg" />
+        <Tabs defaultValue="browse" className="w-full">
+          {/* <TabsList className="grid w-full grid-cols-2 mb-8">
+            <TabsTrigger value="browse" className="flex items-center gap-2">
+              <Dumbbell className="w-4 h-4" />
+              Browse Plans
+            </TabsTrigger>
+            <TabsTrigger value="progress" className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Log Progress
+            </TabsTrigger>
+          </TabsList> */}
+
+          <TabsContent value="browse">
+            {/* Professional Header */}
+            <div className="text-center mb-12">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5 }}
+                className="flex justify-center mb-6"
+              >
+                <div className="p-6 bg-gradient-to-br from-primary/90 to-secondary/90 rounded-full shadow-glow-primary animate-pulse-slow">
+                  <Dumbbell className="w-12 h-12 text-primary-foreground drop-shadow-lg" />
+                </div>
+              </motion.div>
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="text-6xl font-extrabold mb-4 bg-gradient-hero bg-clip-text text-transparent tracking-tight"
+              >
+                Workout Plans
+              </motion.h1>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+                className="text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed"
+              >
+                Discover personalized workout plans designed by experts. Achieve your fitness goals with structured, effective routines tailored to your lifestyle.
+              </motion.p>
             </div>
-          </motion.div>
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-6xl font-extrabold mb-4 bg-gradient-hero bg-clip-text text-transparent tracking-tight"
-          >
-            Workout Plans
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-            className="text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed"
-          >
-            Discover personalized workout plans designed by experts. Achieve your fitness goals with structured, effective routines tailored to your lifestyle.
-          </motion.p>
-        </div>
 
         {/* Create Custom Plan Button */}
         {isAuthenticated && (
@@ -725,6 +740,12 @@ const WorkoutsPage = () => {
             )}
           </motion.div>
         </AnimatePresence>
+          </TabsContent>
+
+          <TabsContent value="progress">
+            <ProgressLogger />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Modals */}

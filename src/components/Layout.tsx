@@ -1,8 +1,9 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Dumbbell, User, Zap, ShoppingBag, Users, LogOut, Activity } from "lucide-react";
+import { Dumbbell, User, Zap, ShoppingBag, Users, LogOut, Activity, TrendingUp } from "lucide-react";
 import { Button } from "./ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import path from "path";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ const Layout = ({ children }: LayoutProps) => {
   const navItems = [
     { path: "/", icon: Activity, label: "Dashboard" },
     { path: "/profile", icon: User, label: "Profile" },
+    {path: '/progress-logger', icon: TrendingUp, label: "Progress-Log"},
     { path: "/muscles", icon: Zap, label: "Muscles" },
     { path: "/workouts", icon: Dumbbell, label: "Workouts" },
     { path: "/supplements", icon: ShoppingBag, label: "Store" },
