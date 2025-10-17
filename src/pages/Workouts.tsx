@@ -184,7 +184,7 @@ const WorkoutPlanModal = ({ plan, onClose, isOpen, planCache, setPlanCache }: {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()} modal={true}>
-      <DialogContent className="max-w-5xl w-full p-0 overflow-hidden bg-background rounded-3xl shadow-2xl border-0 custom-scrollbar">
+      <DialogContent className="max-w-5xl h-full w-full p-0 overflow-hidden bg-background rounded-3xl shadow-2xl border-0 custom-scrollbar">
         {plan && (
           <>
             <div className="px-10 py-8 flex items-start justify-between gap-6 border-b border-border/20 bg-gradient-to-r from-primary/5 to-secondary/5">
@@ -196,9 +196,7 @@ const WorkoutPlanModal = ({ plan, onClose, isOpen, planCache, setPlanCache }: {
                 </div>
                 <p className="text-muted-foreground text-base max-w-3xl leading-relaxed">{plan.description}</p>
               </div>
-
-            </div>
-            <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm pb-6 mb-6 flex gap-3 overflow-x-auto custom-scrollbar border-b border-border/30" style={{ marginLeft: '-2rem', marginRight: '-2rem', paddingLeft: '2rem', paddingRight: '2rem' }}>
+              <div className="z-20 bg-background/95 backdrop-blur-sm p-6 m-6 flex gap-3 overflow-x-auto border-b border-border/30" style={{ marginLeft: '2rem', marginRight: '2rem', paddingLeft: '2rem', paddingRight: '2rem' }}>
                 {daysWithExercises.map((day) => (
                   <Button
                     key={day}
@@ -210,6 +208,8 @@ const WorkoutPlanModal = ({ plan, onClose, isOpen, planCache, setPlanCache }: {
                   </Button>
                 ))}
               </div>
+            </div>
+            
             {/* Scrollable content area for plan details */}
             
             <div className="px-10 pt-8 pb-10 max-h-[75vh] overflow-y-auto flex flex-col justify-start custom-scrollbar" style={{ minHeight: '450px' }}>
