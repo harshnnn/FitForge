@@ -1,5 +1,5 @@
 // src/pages/Workouts.tsx (or your file path)
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/Layout";
@@ -10,6 +10,7 @@ import { Dumbbell, Calendar, Target, X, Star, Video, Zap, Moon, Plus, User, Eye 
 import { Dialog, DialogContent, DialogClose } from "@/components/ui/dialog";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from 'sonner';
 import "../styles/custom-scrollbar.css";
 import ProgressLogger from "./ProgressLogger";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -451,6 +452,7 @@ const WorkoutsPage = () => {
   const { isAuthenticated } = useAuth();
   const [workoutPlans, setWorkoutPlans] = useState<WorkoutPlan[]>([]);
   const [customPlans, setCustomPlans] = useState<CustomPlan[]>([]);
+  const [preferredPlan, setPreferredPlanState] = useState<{ type: 'standard'|'custom'|null; id: string | null }>({ type: null, id: null });
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [selectedDays, setSelectedDays] = useState<number | null>(null);
   const [activePlan, setActivePlan] = useState<WorkoutPlan | null>(null);
@@ -458,6 +460,54 @@ const WorkoutsPage = () => {
 
   // 7. ⭐ Performance: Simple client-side cache for plan details
   const [planCache, setPlanCache] = useState<Record<string, PlanExercise[]>>({});
+  const [settingPreferred, setSettingPreferred] = useState<string | null>(null);
+  const [selectedMenuOpen, setSelectedMenuOpen] = useState(false);
+  const clearTimerRef = useRef<any>(null);
+
+  useEffect(()=>{
+    return ()=>{
+      if (clearTimerRef.current) {
+        clearTimeout(clearTimerRef.current);
+        clearTimerRef.current = null;
+      }
+    };
+  },[]);
+
+  const setPreferredPlan = async (type: 'standard'|'custom', id: string) => {
+    // optimistic UI update
+    const prev = { ...preferredPlan };
+    setPreferredPlanState({ type, id });
+    setSettingPreferred(id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Check if a profile already exists for this user
+      const { data: existing, error: selectErr } = await supabase.from('profiles').select('id,gender').eq('user_id', user.id).maybeSingle();
+      if (selectErr) throw selectErr;
+
+      if (existing) {
+        // Profile exists - update only the preferred fields
+        const { error } = await supabase.from('profiles').update({ preferred_workout_plan_type: type, preferred_workout_plan_id: id } as any).eq('user_id', user.id);
+        if (error) throw error;
+      } else {
+        // No profile exists. The `gender` column is NOT NULL in the schema, so we must supply a value.
+        // Use a harmless placeholder and prompt user to update their profile if needed.
+        const placeholderGender = 'male';
+        const { error } = await supabase.from('profiles').insert({ user_id: user.id, gender: placeholderGender, preferred_workout_plan_type: type, preferred_workout_plan_id: id } as any);
+        if (error) throw error;
+      }
+
+      toast.success('Preferred program saved');
+    } catch (err:any) {
+      console.error(err);
+      // revert optimistic change
+      setPreferredPlanState(prev);
+      toast.error(err?.message || 'Failed to set preferred program');
+    } finally {
+      setSettingPreferred(null);
+    }
+  };
 
   useEffect(() => {
     const loadWorkoutPlans = async () => {
@@ -471,6 +521,68 @@ const WorkoutsPage = () => {
     };
     loadWorkoutPlans();
   }, []);
+
+  useEffect(()=>{
+    const loadPreferred = async ()=>{
+      try{
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: profile } = await supabase.from('profiles').select('preferred_workout_plan_type, preferred_workout_plan_id').eq('user_id', user.id).maybeSingle();
+        const p: any = profile;
+        if (p && p.preferred_workout_plan_id) {
+          setPreferredPlanState({ type: p.preferred_workout_plan_type === 'custom' ? 'custom' : 'standard', id: p.preferred_workout_plan_id });
+        }
+      }catch(err){ console.error(err); }
+    };
+    loadPreferred();
+  },[]);
+
+  // Memoized find for the currently preferred plan object (if available)
+  const preferredFound = useMemo(() => {
+    if (!preferredPlan.id || !preferredPlan.type) return null;
+    const list = preferredPlan.type === 'custom' ? customPlans : workoutPlans;
+    return list.find(p => p.id === preferredPlan.id) || null;
+  }, [preferredPlan, customPlans, workoutPlans]);
+
+  // Schedule clear with undo: optimistic UI update, wait 5s for undo, then perform DB update
+  const scheduleClearPreferred = (prev: { type: 'standard'|'custom'|null; id: string | null }) => {
+    // clear any existing timer
+    if (clearTimerRef.current) {
+      clearTimeout(clearTimerRef.current);
+      clearTimerRef.current = null;
+    }
+
+    clearTimerRef.current = setTimeout(async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Not authenticated');
+        const { error } = await supabase.from('profiles').update({ preferred_workout_plan_type: null, preferred_workout_plan_id: null } as any).eq('user_id', user.id);
+        if (error) throw error;
+        toast.success('Preferred program cleared');
+      } catch (err:any) {
+        console.error(err);
+        // revert UI
+        setPreferredPlanState(prev);
+        toast.error('Failed to clear preferred program');
+      } finally {
+        clearTimerRef.current = null;
+      }
+    }, 5000);
+
+    toast.success('Preferred program will be cleared', {
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          if (clearTimerRef.current) {
+            clearTimeout(clearTimerRef.current);
+            clearTimerRef.current = null;
+            setPreferredPlanState(prev);
+            toast.success('Clear cancelled');
+          }
+        }
+      }
+    });
+  };
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -581,6 +693,47 @@ const WorkoutsPage = () => {
           </motion.div>
         )}
 
+        {/* Preferred Program Preview (placed between Create and Filters) */}
+        {preferredPlan.id && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-8">
+            <div className="cursor-pointer" onClick={() => {
+              // open appropriate modal for preview
+              if (!preferredFound) return;
+              if (preferredPlan.type === 'custom') setActiveCustomPlan(preferredFound as CustomPlan);
+              else setActivePlan(preferredFound as WorkoutPlan);
+            }}>
+              <Card className="border-2 border-primary/30 rounded-2xl shadow-2xl overflow-hidden hover:shadow-2xl transition-shadow duration-200">
+                <div className="p-6 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    {preferredFound && (preferredFound as any).image_url ? (
+                      <img src={(preferredFound as any).image_url} alt={(preferredFound as any).name} className="w-20 h-20 rounded-lg object-cover border-2 border-primary/20 shadow-md" />
+                    ) : (
+                      <div className="w-20 h-20 rounded-lg bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center text-primary text-3xl font-extrabold">{preferredFound ? (preferredFound.name.charAt(0)) : '?'}</div>
+                    )}
+                    <div>
+                      <div className="text-sm text-muted-foreground">Preferred Program</div>
+                      <div className="text-2xl font-extrabold">{preferredFound ? preferredFound.name : 'Selected Program'}</div>
+                      <div className="text-sm text-muted-foreground mt-1">Tap to preview. Use the menu to clear or manage.</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <button onClick={(e)=>{ e.stopPropagation(); setSelectedMenuOpen(v=>!v); }} className="px-3 py-2 rounded-md bg-primary/10 text-primary font-semibold">Selected ▾</button>
+                      {selectedMenuOpen && (
+                        <div className="absolute right-0 mt-2 w-44 bg-background border border-border rounded-lg shadow-lg z-50">
+                          <button className="w-full text-left px-4 py-3 hover:bg-muted/20" onClick={(e)=>{ e.stopPropagation(); setSelectedMenuOpen(false); if(preferredFound){ if(preferredPlan.type==='custom') setActiveCustomPlan(preferredFound as CustomPlan); else setActivePlan(preferredFound as WorkoutPlan); } }}>Preview</button>
+                          <button className="w-full text-left px-4 py-3 hover:bg-muted/20" onClick={async (e)=>{ e.stopPropagation(); setSelectedMenuOpen(false); const prev = { ...preferredPlan }; setPreferredPlanState({ type: null, id: null }); scheduleClearPreferred(prev); }}>Clear</button>
+                          <button className="w-full text-left px-4 py-3 hover:bg-muted/20" onClick={(e)=>{ e.stopPropagation(); setSelectedMenuOpen(false); if(preferredFound){ navigate(preferredPlan.type==='custom' ? `/custom-plan/${preferredFound.id}` : `/plan/${preferredFound.id}`); } }}>Go to plan</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </motion.div>
+        )}
+
         {/* Filters Section - Professional Cards */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -654,6 +807,7 @@ const WorkoutsPage = () => {
             transition={{ duration: 0.5, delay: 0.8 }}
             className="grid md:grid-cols-2 lg:grid-cols-3 gap-10"
           >
+  
             {/* Custom Plans First */}
             {customPlans.map((plan, index) => (
               <motion.div
@@ -678,9 +832,18 @@ const WorkoutsPage = () => {
                     <div className="flex gap-3 flex-wrap">
                       <Badge className="bg-gradient-primary text-sm px-4 py-2 rounded-full shadow-md font-semibold">Personalized</Badge>
                     </div>
-                    <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-full shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActiveCustomPlan(plan)}>
-                      <Eye className="w-5 h-5 mr-3" /> View Plan
-                    </Button>
+                      <div className="flex flex-col gap-3">
+                      <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-full shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActiveCustomPlan(plan)}>
+                        <Eye className="w-5 h-5 mr-3" /> View Plan
+                      </Button>
+                      {preferredPlan.id===plan.id && preferredPlan.type==='custom' ? (
+                        <div className="w-full inline-flex items-center justify-center py-3 rounded-full bg-primary/10 text-primary font-semibold">Selected</div>
+                      ) : (
+                        <Button variant="outline" className="w-full" onClick={()=>setPreferredPlan('custom', plan.id)} disabled={settingPreferred===plan.id}>
+                          {settingPreferred===plan.id? 'Setting...' : 'Set as Preferred Program'}
+                        </Button>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -707,9 +870,18 @@ const WorkoutsPage = () => {
                       <Badge className="bg-gradient-primary text-sm px-4 py-2 rounded-full shadow-md font-semibold">{plan.days_per_week} Days/Week</Badge>
                       <Badge className="bg-gradient-secondary capitalize text-sm px-4 py-2 rounded-full shadow-md font-semibold">{plan.goal.replace("_", " ")}</Badge>
                     </div>
-                    <Button className="w-full bg-gradient-accent hover:opacity-90 transition-all duration-200 font-bold py-3 rounded-full shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActivePlan(plan)}>
-                      <Dumbbell className="w-5 h-5 mr-3" /> View Plan Details
-                    </Button>
+                      <div className="flex flex-col gap-3">
+                      <Button className="w-full bg-gradient-accent hover:opacity-90 transition-all duration-200 font-bold py-3 rounded-full shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActivePlan(plan)}>
+                        <Dumbbell className="w-5 h-5 mr-3" /> View Plan Details
+                      </Button>
+                      {preferredPlan.id===plan.id && preferredPlan.type==='standard' ? (
+                        <div className="w-full inline-flex items-center justify-center py-3 rounded-full bg-primary/10 text-primary font-semibold">Selected</div>
+                      ) : (
+                        <Button variant="outline" className="w-full" onClick={()=>setPreferredPlan('standard', plan.id)} disabled={settingPreferred===plan.id}>
+                          {settingPreferred===plan.id? 'Setting...' : 'Set as Preferred Program'}
+                        </Button>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               </motion.div>

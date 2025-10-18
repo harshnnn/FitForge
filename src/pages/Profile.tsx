@@ -17,7 +17,12 @@ const Profile = () => {
     goal_weight: "",
     height: "",
     age: "",
+    preferred_plan_type: "",
+    preferred_plan_id: "",
   });
+
+  const [workoutPlans, setWorkoutPlans] = useState<{id:string,name:string}[]>([]);
+  const [customPlans, setCustomPlans] = useState<{id:string,name:string,created_at?:string}[]>([]);
 
   useEffect(() => {
     loadProfile();
@@ -35,19 +40,42 @@ const Profile = () => {
         .maybeSingle();
 
       if (error) throw error;
-      if (data) {
+        if (data) {
+        const d: any = data;
         setProfile({
-          gender: data.gender || "",
-          current_weight: data.current_weight?.toString() || "",
-          goal_weight: data.goal_weight?.toString() || "",
-          height: data.height?.toString() || "",
-          age: data.age?.toString() || "",
+          gender: d.gender || "",
+          current_weight: d.current_weight?.toString() || "",
+          goal_weight: d.goal_weight?.toString() || "",
+          height: d.height?.toString() || "",
+          age: d.age?.toString() || "",
+          preferred_plan_type: d.preferred_workout_plan_type || "",
+          preferred_plan_id: d.preferred_workout_plan_id || "",
         });
       }
     } catch (error: any) {
       toast.error(error.message);
     }
   };
+
+  useEffect(()=>{
+    const loadPlans = async ()=>{
+      try{
+        const { data: std } = await supabase.from('workout_plans').select('id,name').order('name');
+        setWorkoutPlans(std || []);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: cust } = await supabase.from('user_custom_plans').select('id,name,created_at').eq('user_id', user.id).order('created_at', { ascending: false });
+          setCustomPlans(cust || []);
+          // if no preferred selected, default to latest custom plan
+          if ((!profile.preferred_plan_id || profile.preferred_plan_id === '') && (cust||[]).length>0) {
+            setProfile(prev=>({ ...prev, preferred_plan_type: 'custom', preferred_plan_id: cust[0].id }));
+          }
+        }
+      }catch(err){ console.error(err); }
+    };
+    loadPlans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   const handleSave = async () => {
     setLoading(true);
@@ -64,6 +92,8 @@ const Profile = () => {
           goal_weight: parseFloat(profile.goal_weight),
           height: parseFloat(profile.height),
           age: parseInt(profile.age),
+          preferred_workout_plan_type: profile.preferred_plan_type || null,
+          preferred_workout_plan_id: profile.preferred_plan_id || null,
         }, {
           onConflict: "user_id"
         });
@@ -156,6 +186,41 @@ const Profile = () => {
                   className="bg-muted"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="preferred_plan">Preferred Workout Program</Label>
+              {(() => {
+                const selectedValue = profile.preferred_plan_type ? `${profile.preferred_plan_type}:${profile.preferred_plan_id}` : (profile.preferred_plan_id || "");
+                return (
+                  <Select
+                    value={selectedValue}
+                    onValueChange={(value) => {
+                  // value format: "standard:ID" or "custom:ID" or just ID (legacy). 'none' clears selection
+                  if (!value || value === 'none') { setProfile(prev=>({ ...prev, preferred_plan_id: '', preferred_plan_type: '' })); return; }
+                  if (value.includes(':')){
+                    const [t,id] = value.split(':'); setProfile(prev=>({ ...prev, preferred_plan_id: id, preferred_plan_type: t }));
+                  } else {
+                    // try to detect from lists
+                    const std = workoutPlans.find(p=>p.id===value);
+                    if (std) return setProfile(prev=>({ ...prev, preferred_plan_id: value, preferred_plan_type: 'standard' }));
+                    const cust = customPlans.find(p=>p.id===value);
+                    if (cust) return setProfile(prev=>({ ...prev, preferred_plan_id: value, preferred_plan_type: 'custom' }));
+                    setProfile(prev=>({ ...prev, preferred_plan_id: value }));
+                  }
+                }}
+              >
+                <SelectTrigger id="preferred_plan" className="bg-muted">
+                  <SelectValue placeholder="Select a preferred program" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {customPlans.map(p=> <SelectItem key={`custom:${p.id}`} value={`custom:${p.id}`}>{`Custom: ${p.name}`}</SelectItem>)}
+                  {workoutPlans.map(p=> <SelectItem key={`standard:${p.id}`} value={`standard:${p.id}`}>{`Standard: ${p.name}`}</SelectItem>)}
+                </SelectContent>
+              </Select>
+                );
+              })()}
             </div>
 
             <Button

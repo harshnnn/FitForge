@@ -118,7 +118,7 @@ export default function ProgressLogger() {
           const res = await supabase.from('workout_plan_exercises').select('*, exercise:exercises(*)').eq('workout_plan_id', selectedPlan.id).eq('day_number', dayNumber).order('id');
           data = res.data || [];
         } else if (selectedPlanType === 'custom') {
-          const res = await supabase.from('user_custom_plan_exercises').select('*, exercise:exercises(*)').eq('user_custom_plan_id', selectedPlan.id).eq('day_of_week', selectedDay).order('id');
+          const res = await supabase.from('user_custom_plan_exercises').select('*, exercise:exercises(*)').eq('user_custom_plan_id', selectedPlan.id).eq('day_of_week', selectedDay as any).order('id');
           data = res.data || [];
         }
         setPlanExercises(data);
