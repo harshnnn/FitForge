@@ -702,7 +702,7 @@ const WorkoutsPage = () => {
               if (preferredPlan.type === 'custom') setActiveCustomPlan(preferredFound as CustomPlan);
               else setActivePlan(preferredFound as WorkoutPlan);
             }}>
-              <Card className="border-2 border-primary/30 rounded-2xl shadow-2xl overflow-hidden hover:shadow-2xl transition-shadow duration-200">
+              <Card className="border-2 border-primary/30 rounded-2xl shadow-2xl overflow-visible hover:shadow-2xl transition-shadow duration-200">
                 <div className="p-6 flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     {preferredFound && (preferredFound as any).image_url ? (
@@ -723,7 +723,6 @@ const WorkoutsPage = () => {
                         <div className="absolute right-0 mt-2 w-44 bg-background border border-border rounded-lg shadow-lg z-50">
                           <button className="w-full text-left px-4 py-3 hover:bg-muted/20" onClick={(e)=>{ e.stopPropagation(); setSelectedMenuOpen(false); if(preferredFound){ if(preferredPlan.type==='custom') setActiveCustomPlan(preferredFound as CustomPlan); else setActivePlan(preferredFound as WorkoutPlan); } }}>Preview</button>
                           <button className="w-full text-left px-4 py-3 hover:bg-muted/20" onClick={async (e)=>{ e.stopPropagation(); setSelectedMenuOpen(false); const prev = { ...preferredPlan }; setPreferredPlanState({ type: null, id: null }); scheduleClearPreferred(prev); }}>Clear</button>
-                          <button className="w-full text-left px-4 py-3 hover:bg-muted/20" onClick={(e)=>{ e.stopPropagation(); setSelectedMenuOpen(false); if(preferredFound){ navigate(preferredPlan.type==='custom' ? `/custom-plan/${preferredFound.id}` : `/plan/${preferredFound.id}`); } }}>Go to plan</button>
                         </div>
                       )}
                     </div>

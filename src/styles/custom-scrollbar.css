@@ -18,3 +18,11 @@
   background: var(--background);
   border-radius: 8px;
 }
+
+/* thin professional scrollbar used by progress logger tab list */
+.prog-tab-scroll::-webkit-scrollbar { height: 8px; }
+.prog-tab-scroll::-webkit-scrollbar-track { background: transparent; }
+.prog-tab-scroll::-webkit-scrollbar-thumb { background: rgba(100,100,100,0.25); border-radius: 9999px; }
+.prog-tab-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100,100,100,0.4); }
+/* firefox */
+.prog-tab-scroll { scrollbar-width: thin; scrollbar-color: rgba(100,100,100,0.25) transparent; }

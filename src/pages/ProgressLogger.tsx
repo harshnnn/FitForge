@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Dialog, DialogContent, DialogClose } from "@/components/ui/dialog";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,9 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { DayPicker } from 'react-day-picker';
+import 'react-day-picker/dist/style.css';
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock } from "lucide-react";
+import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { motion, AnimatePresence } from 'framer-motion';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -36,10 +43,22 @@ export default function ProgressLogger() {
   const { isAuthenticated } = useAuth();
   const [workoutPlans, setWorkoutPlans] = useState<WorkoutPlan[]>([]);
   const [customPlans, setCustomPlans] = useState<CustomPlan[]>([]);
+  const [preferredPlan, setPreferredPlan] = useState<{ type: 'standard'|'custom'|null; id: string | null }>({ type: null, id: null });
+  const [showPreferredModal, setShowPreferredModal] = useState(false);
+  const [settingPreferred, setSettingPreferred] = useState<string | null>(null);
   const [selectedPlanType, setSelectedPlanType] = useState<'standard' | 'custom' | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<WorkoutPlan | CustomPlan | null>(null);
   const [selectedDay, setSelectedDay] = useState<string>("");
   const [planExercises, setPlanExercises] = useState<(PlanExercise | CustomPlanExercise)[]>([]);
+  const [activeExerciseTab, setActiveExerciseTab] = useState<string | null>(null);
+  const tabListRef = React.useRef<HTMLDivElement | null>(null);
+  const tabTriggerRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
+  const [announce, setAnnounce] = useState('');
+  const [prevActiveTab, setPrevActiveTab] = useState<string | null>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const lastActiveRef = React.useRef<string | null>(null);
   const [progressEntries, setProgressEntries] = useState<Record<string, ProgressEntry>>({});
   const [sessionNotes, setSessionNotes] = useState("");
   const [workoutDate, setWorkoutDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -62,6 +81,17 @@ export default function ProgressLogger() {
             const { data: c } = await supabase.from('user_custom_plans').select('*').eq('user_id', user.id).order('name');
             setCustomPlans(c || []);
           }
+          // load preferred plan from profile
+          try {
+            const { data: { user: u } } = await supabase.auth.getUser();
+            if (u) {
+              const { data: profile } = await supabase.from('profiles').select('preferred_workout_plan_type, preferred_workout_plan_id').eq('user_id', u.id).maybeSingle();
+              const p: any = profile;
+              if (p && p.preferred_workout_plan_id) {
+                setPreferredPlan({ type: p.preferred_workout_plan_type === 'custom' ? 'custom' : 'standard', id: p.preferred_workout_plan_id });
+              }
+            }
+          } catch (err) { /* noop */ }
         }
       } catch (err) {
         console.error(err);
@@ -70,6 +100,8 @@ export default function ProgressLogger() {
     };
     loadPlans();
   }, [isAuthenticated]);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     const loadSessions = async () => {
@@ -129,6 +161,8 @@ export default function ProgressLogger() {
           initial[ex.exercise_id] = { exercise_id: ex.exercise_id, planned_sets: ex.sets, planned_reps: ex.reps, set_details: Array.from({length: ex.sets}, ()=>({ reps: null, weight: null })), notes: '' };
         });
         setProgressEntries(initial);
+        // set default active exercise tab to first exercise
+        if ((data||[]).length > 0) setActiveExerciseTab(data[0].exercise_id);
       } catch (err) {
         console.error(err);
       }
@@ -136,6 +170,118 @@ export default function ProgressLogger() {
     };
     loadExercises();
   }, [selectedPlan, selectedDay, selectedPlanType]);
+
+  // detect overflow for chevrons
+  useEffect(()=>{
+    const el = tabListRef.current;
+    if (!el) return;
+    const check = ()=>{
+      const overflowing = el.scrollWidth > el.clientWidth + 2;
+      setHasOverflow(overflowing);
+      setCanScrollLeft(el.scrollLeft > 2);
+      setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    };
+    check();
+    const onScroll = ()=>{
+      setCanScrollLeft(el.scrollLeft > 2);
+      setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    };
+    window.addEventListener('resize', check);
+    el.addEventListener('scroll', onScroll);
+    return ()=>{ window.removeEventListener('resize', check); el.removeEventListener('scroll', onScroll); };
+  }, [planExercises, activeExerciseTab]);
+
+  // announce active tab change for accessibility & track prev for animation direction
+  useEffect(()=>{
+    if (!activeExerciseTab) return;
+    const name = planExercises.find(p=>p.exercise_id===activeExerciseTab)?.exercise?.name || '';
+    setAnnounce(`${name} selected`);
+    // update previous active ref (used to derive animation direction)
+    setPrevActiveTab(lastActiveRef.current);
+    lastActiveRef.current = activeExerciseTab;
+    // focus corresponding trigger when programmatically changed
+    const ref = tabTriggerRefs.current[activeExerciseTab];
+    if (ref) ref.focus();
+  }, [activeExerciseTab, planExercises]);
+
+  const scrollTabsBy = (amount: number) => {
+    const el = tabListRef.current; if (!el) return; el.scrollBy({ left: amount, behavior: 'smooth' });
+  };
+
+  const scrollToStart = () => { const el = tabListRef.current; if (!el) return; el.scrollTo({ left: 0, behavior: 'smooth' }); };
+  const scrollToEnd = () => { const el = tabListRef.current; if (!el) return; el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' }); };
+
+  const handleTabsKeyDown = (e: React.KeyboardEvent) => {
+    const keys = ['ArrowRight','ArrowLeft','Home','End'];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    const ids = planExercises.map(p=>p.exercise_id);
+    const active = activeExerciseTab || ids[0];
+    const idx = Math.max(0, ids.indexOf(active));
+    let nextIdx = idx;
+    if (e.key === 'ArrowRight') nextIdx = Math.min(ids.length-1, idx+1);
+    if (e.key === 'ArrowLeft') nextIdx = Math.max(0, idx-1);
+    if (e.key === 'Home') nextIdx = 0;
+    if (e.key === 'End') nextIdx = ids.length-1;
+    const nextId = ids[nextIdx];
+    if (nextId) setActiveExerciseTab(nextId);
+  };
+
+  // auto-select preferred plan when available and user is on Log tab
+  useEffect(()=>{
+    if (activeTab !== 'log') return;
+    if (!preferredPlan.id || !preferredPlan.type) return;
+    // try to find preferred in loaded lists
+    if (preferredPlan.type === 'custom') {
+      const found = customPlans.find(p=>p.id===preferredPlan.id);
+      if (found) {
+        setSelectedPlanType('custom'); setSelectedPlan(found);
+        // default day
+        setSelectedDay('monday');
+      }
+    } else {
+      const found = workoutPlans.find(p=>p.id===preferredPlan.id);
+      if (found) {
+        setSelectedPlanType('standard'); setSelectedPlan(found);
+        setSelectedDay('day_1');
+      }
+    }
+  }, [preferredPlan, workoutPlans, customPlans, activeTab]);
+
+  const setPreferredPlanHandler = async (type: 'standard'|'custom', id: string) => {
+    setSettingPreferred(id);
+    const prev = { ...preferredPlan };
+    setPreferredPlan({ type, id });
+    try {
+      const { data: { user } } = await supabase.auth.getUser(); if (!user) throw new Error('Not authenticated');
+      const { data: existing, error: selectErr } = await supabase.from('profiles').select('id,gender').eq('user_id', user.id).maybeSingle();
+      if (selectErr) throw selectErr;
+      if (existing) {
+        const { error } = await supabase.from('profiles').update({ preferred_workout_plan_type: type, preferred_workout_plan_id: id } as any).eq('user_id', user.id);
+        if (error) throw error;
+      } else {
+        const placeholderGender = 'male';
+        const { error } = await supabase.from('profiles').insert({ user_id: user.id, gender: placeholderGender, preferred_workout_plan_type: type, preferred_workout_plan_id: id } as any);
+        if (error) throw error;
+      }
+      toast.success('Preferred program saved');
+      // apply selection into logger
+      if (type === 'custom') {
+        const found = customPlans.find(p=>p.id===id);
+        if (found) { setSelectedPlanType('custom'); setSelectedPlan(found); setSelectedDay('monday'); }
+      } else {
+        const found = workoutPlans.find(p=>p.id===id);
+        if (found) { setSelectedPlanType('standard'); setSelectedPlan(found); setSelectedDay('day_1'); }
+      }
+    } catch (err:any) {
+      console.error(err);
+      setPreferredPlan(prev);
+      toast.error(err?.message || 'Failed to set preferred program');
+    } finally {
+      setSettingPreferred(null);
+      setShowPreferredModal(false);
+    }
+  };
 
   const availableDays = useMemo(()=>{
     if (!selectedPlan) return [] as {value:string,label:string}[];
@@ -257,6 +403,9 @@ export default function ProgressLogger() {
   return (
     <Layout>
 
+      {/* ARIA live region for announcing active exercise changes to screen readers */}
+      <div aria-live="polite" className="sr-only" role="status">{announce}</div>
+
       <div className="text-center mb-8">
           <div className="flex justify-center mb-4"><div className="p-4 bg-gradient-accent rounded-full"><TrendingUp className="w-8 h-8"/></div></div>
           <h1 className="text-4xl font-bold mb-2">Log Your Progress</h1>
@@ -304,16 +453,36 @@ export default function ProgressLogger() {
             <CardDescription>Choose the plan you followed today</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Standard Plans</h3>
-                <div className="space-y-3">{workoutPlans.map(p=> <Card key={p.id} className={`cursor-pointer ${selectedPlan?.id===p.id && selectedPlanType==='standard' ? 'ring-2 ring-primary' : ''}`} onClick={()=>handlePlanSelect('standard', p)}><CardContent><div className="flex justify-between"><div><h4 className="font-semibold">{p.name}</h4><p className="text-sm text-muted-foreground">{p.days_per_week} days/week</p></div>{selectedPlan?.id===p.id && selectedPlanType==='standard' && <CheckCircle className="w-5 h-5 text-primary"/>}</div></CardContent></Card>)}</div>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Your Custom Plans</h3>
-                <div className="space-y-3">{customPlans.length ? customPlans.map(p=> <Card key={p.id} className={`cursor-pointer ${selectedPlan?.id===p.id && selectedPlanType==='custom' ? 'ring-2 ring-primary' : ''}`} onClick={()=>handlePlanSelect('custom', p)}><CardContent><div className="flex justify-between"><div><h4 className="font-semibold">{p.name}</h4><p className="text-sm text-muted-foreground">{p.description || 'Custom workout plan'}</p></div>{selectedPlan?.id===p.id && selectedPlanType==='custom' && <CheckCircle className="w-5 h-5 text-primary"/>}</div></CardContent></Card>) : <p className="text-muted-foreground text-center py-8">No custom plans yet.</p>}</div>
-              </div>
+            <div className="space-y-4 mb-4">
+              {/* Preferred plan preview / CTA */}
+              {preferredPlan.id ? (
+                <Card className="p-3 border-primary/20 ring-1 ring-primary/10">
+                  <CardContent className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm text-muted-foreground">Logging into</div>
+                      <div className="text-lg font-extrabold">{(preferredPlan.type === 'custom' ? customPlans.find(p=>p.id===preferredPlan.id)?.name : workoutPlans.find(p=>p.id===preferredPlan.id)?.name) || 'Preferred Program'}</div>
+                      <div className="text-sm text-muted-foreground">You can change this below</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={()=>setShowPreferredModal(true)}>Change</Button>
+                      <Button variant="ghost" onClick={()=>navigate('/workouts')}>Browse plans</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="flex items-center justify-between p-3 border border-dashed rounded">
+                  <div>
+                    <div className="text-sm text-muted-foreground">No preferred program</div>
+                    <div className="text-lg font-extrabold">Select a preferred program to log into by default</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={()=>setShowPreferredModal(true)} className="bg-gradient-to-r from-purple-600 to-pink-600">Choose Preferred</Button>
+                    <Button variant="ghost" onClick={()=>navigate('/workouts')}>Browse all</Button>
+                  </div>
+                </div>
+              )}
             </div>
+
           </CardContent>
         </Card>
 
@@ -327,7 +496,38 @@ export default function ProgressLogger() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="workout-date">Workout Date</Label>
-                  <Input id="workout-date" type="date" value={workoutDate} onChange={(e)=>setWorkoutDate(e.target.value)} className="mt-1" />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button id="workout-date" className="mt-1 flex items-center w-full rounded-md border px-3 py-2 text-left hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary">
+                        <div className="flex-1">
+                          <div className="text-sm">{format(new Date(workoutDate), 'PPP')}</div>
+                        </div>
+                        <Calendar className="w-5 h-5 text-muted-foreground ml-2" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="start" className="w-auto p-0">
+                      <div className="p-4">
+                        <DayPicker
+                          mode="single"
+                          selected={new Date(workoutDate)}
+                          onSelect={(d)=>{ if (d) { setWorkoutDate(format(d,'yyyy-MM-dd')); } }}
+                        />
+                        <div className="flex justify-between mt-2">
+                          <button type="button" className="text-sm text-muted-foreground px-2 py-1 rounded hover:bg-muted" onClick={()=>{ const t=new Date(); setWorkoutDate(format(t,'yyyy-MM-dd')); }}>
+                            Today
+                          </button>
+                          <div className="flex gap-2">
+                            <button type="button" className="text-sm text-muted-foreground px-2 py-1 rounded hover:bg-muted" onClick={()=>{ setWorkoutDate(format(new Date(),'yyyy-MM-dd')); }}>
+                              Apply
+                            </button>
+                            <button type="button" className="text-sm text-red-600 px-2 py-1 rounded hover:bg-red-50" onClick={()=>{ setWorkoutDate(format(new Date(),'yyyy-MM-dd')); }}>
+                              Close
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div>
                   <Label htmlFor="day-select">Day of Plan</Label>
@@ -340,26 +540,106 @@ export default function ProgressLogger() {
                   {loading ? <div className="text-center py-8">Loading exercises...</div> : planExercises.length>0 ? (
                     <>
                       <h3 className="text-xl font-semibold">Exercises Completed</h3>
-                      <div className="space-y-4">{planExercises.map((exercise)=>{
-                        const progress = progressEntries[exercise.exercise_id]; if (!progress) return null;
-                        return (
-                          <Card key={exercise.id}><CardContent className="p-6">
-                            <div className="flex items-start gap-4 mb-4"><img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/80/000000/FFFFFF?text=${(exercise as any).exercise.name?.charAt(0)||''}`} alt={(exercise as any).exercise.name} className="w-20 h-20 rounded-lg object-cover border"/><div className="flex-1"><h4 className="text-lg font-semibold">{(exercise as any).exercise.name}</h4><p className="text-sm text-muted-foreground capitalize">{((exercise as any).exercise.muscle_group||'').replace('_',' ')}</p><div className="flex gap-2 mt-2"><Badge variant="outline">Planned: {(exercise as any).sets} sets × {(exercise as any).reps} reps</Badge></div></div></div>
+                      <div>
+                        {/* Mobile fallback: Select for small screens */}
+                        <div className="md:hidden mb-4">
+                          <Select value={activeExerciseTab || undefined} onValueChange={(v)=>setActiveExerciseTab(v || null)}>
+                            <SelectTrigger className="w-full"><SelectValue placeholder="Select exercise..."/></SelectTrigger>
+                            <SelectContent>
+                              {planExercises.map(ex=> <SelectItem key={ex.exercise_id} value={ex.exercise_id}>{(ex as any).exercise.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                            <div className="space-y-3">{(progress.set_details||[]).map((s, idx)=> (
-                              <div key={idx} className="grid grid-cols-12 gap-3 items-end">
-                                <div className="col-span-2"><Label>Set {idx+1}</Label></div>
-                                <div className="col-span-4"><Label htmlFor={`weight-${exercise.exercise_id}-${idx}`}>Weight</Label><Input id={`weight-${exercise.exercise_id}-${idx}`} type="number" step="0.5" value={s.weight ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { weight: e.target.value ? parseFloat(e.target.value) : null })} className="mt-1"/></div>
-                                <div className="col-span-4"><Label htmlFor={`reps-${exercise.exercise_id}-${idx}`}>Reps</Label><Input id={`reps-${exercise.exercise_id}-${idx}`} type="number" min={0} value={s.reps ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { reps: e.target.value ? parseInt(e.target.value) : null })} className="mt-1"/></div>
-                                <div className="col-span-2">{idx===(progress.set_details||[]).length-1 && <Button size="sm" onClick={()=>addSetToExercise(exercise.exercise_id)} className="mt-1">Add Set</Button>}</div>
-                              </div>
-                            ))}</div>
+                        <style>{`
+                          /* thin professional scrollbar for tab list */
+                          .prog-tab-scroll::-webkit-scrollbar { height: 8px; }
+                          .prog-tab-scroll::-webkit-scrollbar-track { background: transparent; }
+                          .prog-tab-scroll::-webkit-scrollbar-thumb { background: rgba(100,100,100,0.25); border-radius: 9999px; }
+                          .prog-tab-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100,100,100,0.4); }
+                          /* firefox */
+                          .prog-tab-scroll { scrollbar-width: thin; scrollbar-color: rgba(100,100,100,0.25) transparent; }
+                        `}</style>
 
-                            <div className="mt-4"><Label htmlFor={`notes-${exercise.exercise_id}`}>Exercise Notes (Optional)</Label><Textarea id={`notes-${exercise.exercise_id}`} value={progress.notes} onChange={(e)=> setProgressEntries(prev=>({ ...prev, [exercise.exercise_id]: { ...prev[exercise.exercise_id], notes: e.target.value } }))} rows={2} className="mt-1"/></div>
+                        <div className="hidden md:flex items-center gap-2 group">
+                          {hasOverflow ? (
+                            <button aria-hidden onClick={()=>scrollTabsBy(-240)} className={`p-2 rounded-md ${canScrollLeft ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'}`} disabled={!canScrollLeft}><ChevronLeft className="w-5 h-5"/></button>
+                          ) : <div className="w-9" />}
+                          <div ref={tabListRef} onKeyDown={handleTabsKeyDown} role="tablist" aria-label="Exercises" className="flex-1 overflow-x-auto prog-tab-scroll">
+                            <div className="sticky top-0 bg-background/60 backdrop-blur-sm z-10 flex gap-2 pb-2 -mx-6 px-6" style={{ display: 'flex' }}>
+                              {planExercises.map((exercise)=> {
+                                const prog = progressEntries[exercise.exercise_id];
+                                const loggedSets = prog ? (prog.set_details || []).filter((s:any)=> s.reps !== null || s.weight !== null).length : 0;
+                                const plannedSets = (exercise as any).sets || 0;
+                                const completed = loggedSets >= plannedSets && plannedSets > 0;
+                                return (
+                                  <button
+                                    key={exercise.exercise_id}
+                                    ref={el=> tabTriggerRefs.current[exercise.exercise_id]=el}
+                                    role="tab"
+                                    aria-selected={activeExerciseTab===exercise.exercise_id}
+                                    aria-controls={`panel-${exercise.exercise_id}`}
+                                    onClick={()=>setActiveExerciseTab(exercise.exercise_id)}
+                                    className={`min-w-[11rem] px-3 py-2 rounded-md hover:bg-muted/40 dark:hover:bg-muted/30 flex items-center gap-3 ${activeExerciseTab===exercise.exercise_id ? 'ring-2 ring-primary' : ''}`}
+                                  >
+                                    <img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/48/111827/FFFFFF?text=${encodeURIComponent(((exercise as any).exercise.name||'').charAt(0) || '')}`} alt={(exercise as any).exercise.name} className="w-10 h-10 rounded-md object-cover border" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-sm truncate">{(exercise as any).exercise.name}</div>
+                                      <div className="text-xs text-muted-foreground flex items-center justify-between">
+                                        <span>Planned: {(exercise as any).sets}×{(exercise as any).reps}</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="ml-2 text-xs font-medium text-primary">{loggedSets}/{plannedSets}</span>
+                                          {completed && <span className="text-green-600" aria-hidden><CheckCircle className="w-4 h-4"/></span>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          {hasOverflow ? (
+                            <button aria-hidden onClick={()=>scrollTabsBy(240)} className={`p-2 rounded-md ${canScrollRight ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'}`} disabled={!canScrollRight}><ChevronRight className="w-5 h-5"/></button>
+                          ) : <div className="w-9" />}
+                        </div>
 
-                          </CardContent></Card>
-                        );
-                      })}</div>
+                        <div className="mt-4">
+                          <AnimatePresence initial={false} mode="wait">
+                            {planExercises.map((exercise)=>{
+                              const progress = progressEntries[exercise.exercise_id]; if (!progress) return null;
+                              const isActive = activeExerciseTab === exercise.exercise_id;
+                              if (!isActive) return null;
+                              // determine direction using index
+                              const ids = planExercises.map(p=>p.exercise_id);
+                              const dir = prevActiveTab && ids.indexOf(activeExerciseTab || '') < ids.indexOf(prevActiveTab) ? -1 : 1;
+                              return (
+                                <motion.div key={exercise.exercise_id} id={`panel-${exercise.exercise_id}`} role="tabpanel" aria-labelledby={exercise.exercise_id}
+                                  initial={{ opacity: 0, x: 20 * dir }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  exit={{ opacity: 0, x: -20 * dir }}
+                                  transition={{ duration: 0.22 }}
+                                >
+                                  <Card><CardContent className="p-6">
+                                    <div className="flex items-start gap-4 mb-4"><img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/80/000000/FFFFFF?text=${(exercise as any).exercise.name?.charAt(0)||''}`} alt={(exercise as any).exercise.name} className="w-20 h-20 rounded-lg object-cover border"/><div className="flex-1"><h4 className="text-lg font-semibold">{(exercise as any).exercise.name}</h4><p className="text-sm text-muted-foreground capitalize">{((exercise as any).exercise.muscle_group||'').replace('_',' ')}</p><div className="flex gap-2 mt-2"><Badge variant="outline">Planned: {(exercise as any).sets} sets × {(exercise as any).reps} reps</Badge></div></div></div>
+
+                                    <div className="space-y-3">{(progress.set_details||[]).map((s, idx)=> (
+                                      <div key={idx} className="grid grid-cols-12 gap-3 items-end">
+                                        <div className="col-span-2"><Label>Set {idx+1}</Label></div>
+                                        <div className="col-span-4"><Label htmlFor={`weight-${exercise.exercise_id}-${idx}`}>Weight</Label><Input id={`weight-${exercise.exercise_id}-${idx}`} type="number" step="0.5" value={s.weight ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { weight: e.target.value ? parseFloat(e.target.value) : null })} className="mt-1"/></div>
+                                        <div className="col-span-4"><Label htmlFor={`reps-${exercise.exercise_id}-${idx}`}>Reps</Label><Input id={`reps-${exercise.exercise_id}-${idx}`} type="number" min={0} value={s.reps ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { reps: e.target.value ? parseInt(e.target.value) : null })} className="mt-1"/></div>
+                                        <div className="col-span-2">{idx===(progress.set_details||[]).length-1 && <Button size="sm" onClick={()=>addSetToExercise(exercise.exercise_id)} className="mt-1">Add Set</Button>}</div>
+                                      </div>
+                                    ))}</div>
+
+                                    <div className="mt-4"><Label htmlFor={`notes-${exercise.exercise_id}`}>Exercise Notes (Optional)</Label><Textarea id={`notes-${exercise.exercise_id}`} value={progress.notes} onChange={(e)=> setProgressEntries(prev=>({ ...prev, [exercise.exercise_id]: { ...prev[exercise.exercise_id], notes: e.target.value } }))} rows={2} className="mt-1"/></div>
+
+                                  </CardContent></Card>
+                                </motion.div>
+                              );
+                            })}
+                          </AnimatePresence>
+                        </div>
+                      </div>
 
                       <div><Label htmlFor="session-notes">Session Notes (Optional)</Label><Textarea id="session-notes" value={sessionNotes} onChange={(e)=>setSessionNotes(e.target.value)} placeholder="Overall thoughts..." rows={3} className="mt-1"/></div>
 
@@ -371,6 +651,48 @@ export default function ProgressLogger() {
             </CardContent>
           </Card>
         )}
+
+        {/* Preferred selection modal */}
+        <Dialog open={showPreferredModal} onOpenChange={setShowPreferredModal}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto p-6">
+              <h3 className="text-xl font-bold mb-4">Choose Preferred Program</h3>
+              <div className="space-y-6">
+                {/* Custom Plans Section (only show if any) */}
+                {customPlans.length > 0 && (
+                  <section>
+                    <h4 className="text-lg font-semibold mb-3">Your Custom Plans</h4>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {customPlans.map(p => (
+                        <Card key={p.id} className={`cursor-pointer ${preferredPlan.id===p.id && preferredPlan.type==='custom' ? 'ring-2 ring-primary' : ''}`} onClick={()=>setPreferredPlanHandler('custom', p.id)}>
+                          <CardContent>
+                            <div className="flex justify-between items-center"><div><h4 className="font-semibold">{p.name}</h4><p className="text-sm text-muted-foreground">Custom plan</p></div><div>{preferredPlan.id===p.id && preferredPlan.type==='custom' && <CheckCircle className="w-5 h-5 text-primary"/>}</div></div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Standard Plans Section */}
+                <section>
+                  <h4 className="text-lg font-semibold mb-3">Standard Plans</h4>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {workoutPlans.map(p => (
+                      <Card key={p.id} className={`cursor-pointer ${preferredPlan.id===p.id && preferredPlan.type==='standard' ? 'ring-2 ring-primary' : ''}`} onClick={()=>setPreferredPlanHandler('standard', p.id)}>
+                        <CardContent>
+                          <div className="flex justify-between items-center"><div><h4 className="font-semibold">{p.name}</h4><p className="text-sm text-muted-foreground">{p.days_per_week} days/week</p></div><div>{preferredPlan.id===p.id && preferredPlan.type==='standard' && <CheckCircle className="w-5 h-5 text-primary"/>}</div></div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </section>
+
+                
+
+                <div className="flex justify-end mt-2"><Button variant="ghost" onClick={()=>setShowPreferredModal(false)}>Close</Button></div>
+              </div>
+            </DialogContent>
+        </Dialog>
 
         </>
 
