@@ -298,7 +298,7 @@ const CustomPlanCreator = () => {
                           </DialogDescription>
                         </DialogHeader>
 
-                        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 sm:px-6 py-3 sm:py-4">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar prog-tab-scroll px-3 sm:px-6 py-3 sm:py-4">
                           <div className="space-y-4 sm:space-y-6">
                             {/* Search Controls - Stacked on mobile */}
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
