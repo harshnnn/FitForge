@@ -49,7 +49,10 @@ const MuscleSelector = () => {
   } = useMuscleData();
   const gender = useUserGender();
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  // selectedMuscle is the normalized key used for API queries (e.g., 'chest_upper')
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
+  // selectedMuscleKey is the mesh key (e.g., 'chest_upper_left') used for highlighting
+  const [selectedMuscleKey, setSelectedMuscleKey] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [selectedMuscleLabel, setSelectedMuscleLabel] = useState<string | null>(null);
   const [mobileGroupsOpen, setMobileGroupsOpen] = useState(false);
@@ -102,16 +105,22 @@ const MuscleSelector = () => {
   const selectedMuscles =
     selectedGroup
       ? groupToMuscles[selectedGroup]
-      : selectedMuscle && linkedMuscles[selectedMuscle]
-        ? linkedMuscles[selectedMuscle]
-        : selectedMuscle
-          ? [selectedMuscle]
+      : selectedMuscleKey && linkedMuscles[selectedMuscleKey]
+        ? linkedMuscles[selectedMuscleKey]
+        : selectedMuscleKey
+          ? [selectedMuscleKey]
           : [];
 
   // Defensive prettify usage for null/undefined
   const getMuscleLabel = (muscleKey: string | null | undefined) => {
     if (!muscleKey) return "";
     return meshNameOverrides[muscleKey]?.label || prettify(muscleKey);
+  };
+
+  // normalize mesh keys to canonical base keys (strip _left/_right)
+  const normalizeBaseKey = (key: string | null | undefined) => {
+    if (!key) return key || null;
+    return key.replace(/_(?:left|right)$/i, "");
   };
 
   // Handle adding exercise to custom plan
@@ -290,11 +299,13 @@ const MuscleSelector = () => {
                           {group === "Chest" && (
                             <button
                               className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${
-                                (selectedMuscle === "chest_upper_left" || selectedMuscle === "chest_upper_right")
+                                (selectedMuscleKey === "chest_upper_left" || selectedMuscleKey === "chest_upper_right")
                                   ? "bg-primary text-white" : "hover:bg-muted"
                               }`}
                               onClick={() => {
-                                setSelectedMuscle("chest_upper_left");
+                                // use the mesh key for highlighting, but set the normalized base key for API queries
+                                setSelectedMuscleKey("chest_upper_left");
+                                setSelectedMuscle(normalizeBaseKey("chest_upper_left"));
                                 setSelectedMuscleLabel("Upper Chest");
                                 setSelectedGroup(null);
                                 if (threeSceneRef.current) threeSceneRef.current.rotateTo("front");
@@ -308,9 +319,11 @@ const MuscleSelector = () => {
                             .map((muscleKey) => (
                               <button
                                 key={muscleKey}
-                                className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${selectedMuscle === muscleKey ? "bg-primary text-white" : "hover:bg-muted"}`}
+                                className={`block w-full text-left px-2 py-1 rounded capitalize font-medium ${selectedMuscleKey === muscleKey ? "bg-primary text-white" : "hover:bg-muted"}`}
                                 onClick={() => {
-                                  setSelectedMuscle(muscleKey);
+                                  // set mesh key for highlighting, and normalized base key for API queries
+                                  setSelectedMuscleKey(muscleKey);
+                                  setSelectedMuscle(normalizeBaseKey(muscleKey));
                                   setSelectedMuscleLabel(getMuscleLabel(muscleKey));
                                   setSelectedGroup(null);
                                   if (threeSceneRef.current) {
@@ -360,7 +373,11 @@ const MuscleSelector = () => {
                   selectedMuscles={selectedMuscles}
                   gender={gender}
                   onMuscleSelect={(muscleKey, muscleLabel) => {
-                    setSelectedMuscle(muscleKey);
+                    // normalized base key for API queries (strip left/right)
+                    const base = normalizeBaseKey(muscleKey);
+                    setSelectedMuscle(base);
+                    // mesh key used for highlighting
+                    setSelectedMuscleKey(muscleKey);
                     setSelectedMuscleLabel(muscleLabel);
                     setSelectedGroup(null);
                   }}
@@ -375,17 +392,21 @@ const MuscleSelector = () => {
             <div className="p-6 h-full flex flex-col">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold capitalize">
-                  {selectedMuscleLabel || getMuscleLabel(selectedMuscle)} Exercises
+                  {selectedMuscleLabel || getMuscleLabel(selectedMuscleKey) || (selectedMuscle ? prettify(selectedMuscle) : '')} Exercises
                 </h2>
                 <button
                   className="ml-2 p-2 rounded-full hover:bg-muted transition-colors"
-                  onClick={() => setSelectedMuscle(null)}
+                  onClick={() => {
+                    setSelectedMuscle(null);
+                    setSelectedMuscleKey(null);
+                    setSelectedMuscleLabel(null);
+                  }}
                   aria-label="Close exercises panel"
                 >
                   ✕
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto">
                 {exercises.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">
                     No exercises found for this muscle group yet.
@@ -396,7 +417,7 @@ const MuscleSelector = () => {
                       .slice() // copy array
                       .sort((a, b) => b.rating - a.rating) // sort by rating descending
                       .map((exercise) => (
-                        <Card key={exercise.id} className="border-border/30 hover:border-primary/50 transition-colors bg-card/90">
+                                <Card key={exercise.id} className="border-border/30 hover:border-primary/50 transition-colors bg-card/90">
                           <CardHeader className="flex flex-row items-center gap-4">
                             <img
                               src={exercise.image_url}

@@ -14,6 +14,9 @@ import { toast } from 'sonner';
 import "../styles/custom-scrollbar.css";
 import ProgressLogger from "./ProgressLogger";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ThreeScene from "@/components/ThreeScene";
+import { useMuscleData } from "@/hooks/useMuscleData";
+import { useUserGender } from "@/hooks/useUserGender";
 
 // 1. ⭐ Strong Typing for Data Integrity & Developer Experience
 interface Exercise {
@@ -148,6 +151,52 @@ const WorkoutPlanModal = ({ plan, onClose, isOpen, planCache, setPlanCache }: {
   const [planExercises, setPlanExercises] = useState<PlanExercise[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeDay, setActiveDay] = useState<number>(1);
+  // muscle selection view state: 'model' placeholder or 'list' of muscle names
+  const [selectedView, setSelectedView] = useState<'model'|'list'>('model');
+  const [muscleList] = useState<string[]>(() => [
+    'chest','back','shoulders','biceps','triceps','quadriceps','hamstrings','calves','glutes','forearms','abs'
+  ]);
+  const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
+  const [selectedMuscleLabel, setSelectedMuscleLabel] = useState<string | null>(null);
+  const [muscleExercises, setMuscleExercises] = useState<Exercise[]>([]);
+  const { linkedMuscles } = useMuscleData();
+  const gender = useUserGender();
+
+  const selectedMuscles = useMemo(() => {
+    if (!selectedMuscle) return [];
+    return linkedMuscles[selectedMuscle] ?? [selectedMuscle];
+  }, [selectedMuscle, linkedMuscles]);
+
+  const loadExercisesForMuscle = async (muscle: string) => {
+    setSelectedMuscle(muscle);
+    setMuscleExercises([]);
+    try {
+      const { data, error } = await supabase
+        .from('exercises')
+        .select('*')
+        .ilike('muscle_group', `%${muscle}%`)
+        .limit(100);
+      if (error) throw error;
+      setMuscleExercises((data || []) as Exercise[]);
+    } catch (err) {
+      console.error('Error loading exercises for muscle', muscle, err);
+    }
+  };
+
+  const addExerciseToPlan = (ex: Exercise) => {
+    if (!plan) return toast.error('No plan open to add exercises');
+    const newEntry: PlanExercise = {
+      id: `local-${Date.now()}`,
+      workout_plan_id: plan.id,
+      exercise_id: ex.id,
+      sets: 3,
+      reps: '8-12',
+      day_number: activeDay,
+      exercise: ex,
+    };
+    setPlanExercises(prev => [newEntry, ...prev]);
+    toast.success(`${ex.name} added to Day ${activeDay}`);
+  };
 
   // 5. ⭐ Performance: Fetch plan details only when the plan changes
   useEffect(() => {
@@ -216,8 +265,67 @@ const WorkoutPlanModal = ({ plan, onClose, isOpen, planCache, setPlanCache }: {
             {/* Scrollable content area for plan details */}
             
             <div className="px-10 pt-8 pb-10 max-h-[75vh] overflow-y-auto flex flex-col justify-start custom-scrollbar" style={{ minHeight: '450px' }}>
-              
 
+              {/* Muscle selection toggle and drill-down */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold">Select Muscle (view)</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => setSelectedView('model')} className={`px-3 py-1 rounded ${selectedView === 'model' ? 'bg-primary text-white' : 'bg-muted/20'}`}>3D Model</button>
+                    <button onClick={() => setSelectedView('list')} className={`px-3 py-1 rounded ${selectedView === 'list' ? 'bg-primary text-white' : 'bg-muted/20'}`}>Muscle Names</button>
+                  </div>
+                </div>
+
+                {selectedView === 'model' ? (
+                  <div className="rounded-lg border p-4 bg-gradient-to-br from-muted/5 to-background flex items-center justify-center">
+                    <div className="w-full h-[360px] rounded-md overflow-hidden">
+                      <ThreeScene
+                        gender={gender}
+                        selectedMuscles={selectedMuscles}
+                        onMuscleSelect={(muscleKey: string, muscleLabel: string) => {
+                          // load exercises for muscle selected in 3D scene
+                          setSelectedMuscle(muscleKey);
+                          setSelectedMuscleLabel(muscleLabel);
+                          loadExercisesForMuscle(muscleKey);
+                        }}
+                        className="w-full h-full"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                    {muscleList.map((m) => (
+                      <button key={m} onClick={() => loadExercisesForMuscle(m)} className={`px-3 py-2 rounded-lg text-sm text-left border ${selectedMuscle === m ? 'ring-2 ring-primary bg-primary/5' : 'bg-muted/5'}`}>
+                        {m.replace('_', ' ')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {selectedMuscle && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium mb-2">Exercises for: {selectedMuscle.replace('_', ' ')}</h4>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {muscleExercises.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">No exercises found</div>
+                      ) : (
+                        muscleExercises.map((ex) => (
+                          <div key={ex.id} className="p-3 border rounded-lg flex items-center gap-3">
+                            <img src={ex.image_url || `https://via.placeholder.com/80/000000/FFFFFF?text=${ex.name.charAt(0)}`} className="w-14 h-14 rounded-md object-cover" />
+                            <div className="flex-1">
+                              <div className="font-medium">{ex.name}</div>
+                              <div className="text-sm text-muted-foreground">{ex.description?.slice(0, 80)}</div>
+                            </div>
+                            <div>
+                              <button onClick={() => addExerciseToPlan(ex)} className="px-3 py-1 rounded bg-primary text-white text-sm">Add</button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {loading ? (
                 <PlanDetailSkeleton />

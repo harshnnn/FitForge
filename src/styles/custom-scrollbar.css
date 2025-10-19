@@ -22,7 +22,32 @@
 /* thin professional scrollbar used by progress logger tab list */
 .prog-tab-scroll::-webkit-scrollbar { height: 8px; }
 .prog-tab-scroll::-webkit-scrollbar-track { background: transparent; }
-.prog-tab-scroll::-webkit-scrollbar-thumb { background: rgba(100,100,100,0.25); border-radius: 9999px; }
-.prog-tab-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100,100,100,0.4); }
+.prog-tab-scroll::-webkit-scrollbar-thumb { background: rgba(100,100,100,0.25); border-radius: 9999px; opacity: 0; transition: opacity 180ms ease; }
+.prog-tab-scroll:hover::-webkit-scrollbar-thumb { opacity: 1; }
 /* firefox */
 .prog-tab-scroll { scrollbar-width: thin; scrollbar-color: rgba(100,100,100,0.25) transparent; }
+
+
+/* Add this to your main CSS file */
+
+.prog-tab-scroll {
+  /* For Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent; /* thumb track */
+}
+
+/* For Chrome, Safari, and Edge */
+.prog-tab-scroll::-webkit-scrollbar {
+  height: 8px; /* Height of the horizontal scrollbar */
+}
+
+.prog-tab-scroll::-webkit-scrollbar-track {
+  background: transparent; /* Hide the track */
+}
+
+.prog-tab-scroll::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border)); /* Subtle thumb color */
+  border-radius: 10px;
+}
+
+.prog-tab-scroll:hover::-webkit-scrollbar-thumb { background-color: hsl(var(--muted-foreground)); }

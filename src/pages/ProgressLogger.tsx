@@ -175,16 +175,36 @@ export default function ProgressLogger() {
   useEffect(()=>{
     const el = tabListRef.current;
     if (!el) return;
+    const computeInnerWidth = (container: HTMLElement) => {
+      const inner = container.querySelector(':scope > div') as HTMLElement | null;
+      let innerWidth = container.scrollWidth;
+      if (inner) {
+        try {
+          const cs = getComputedStyle(inner);
+          const ml = parseFloat(cs.marginLeft || '0') || 0;
+          const mr = parseFloat(cs.marginRight || '0') || 0;
+          innerWidth = Math.max(0, inner.scrollWidth - Math.abs(ml) - Math.abs(mr));
+        } catch (e) {
+          innerWidth = container.scrollWidth;
+        }
+      }
+      return innerWidth;
+    };
+
     const check = ()=>{
-      const overflowing = el.scrollWidth > el.clientWidth + 2;
+      // measure inner content width excluding outer negative margins (sticky inner row uses -mx-6)
+      const innerWidth = computeInnerWidth(el);
+      const diff = innerWidth - el.clientWidth;
+      const overflowing = diff > 8; // treat as overflow only if inner content exceeds container by >8px
       setHasOverflow(overflowing);
-      setCanScrollLeft(el.scrollLeft > 2);
-      setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+      setCanScrollLeft(el.scrollLeft > 6);
+      setCanScrollRight(el.scrollLeft + el.clientWidth < innerWidth - 6);
     };
     check();
     const onScroll = ()=>{
-      setCanScrollLeft(el.scrollLeft > 2);
-      setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+      const innerW = computeInnerWidth(el);
+      setCanScrollLeft(el.scrollLeft > 6);
+      setCanScrollRight(el.scrollLeft + el.clientWidth < innerW - 6);
     };
     window.addEventListener('resize', check);
     el.addEventListener('scroll', onScroll);
@@ -551,22 +571,14 @@ export default function ProgressLogger() {
                           </Select>
                         </div>
 
-                        <style>{`
-                          /* thin professional scrollbar for tab list */
-                          .prog-tab-scroll::-webkit-scrollbar { height: 8px; }
-                          .prog-tab-scroll::-webkit-scrollbar-track { background: transparent; }
-                          .prog-tab-scroll::-webkit-scrollbar-thumb { background: rgba(100,100,100,0.25); border-radius: 9999px; }
-                          .prog-tab-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100,100,100,0.4); }
-                          /* firefox */
-                          .prog-tab-scroll { scrollbar-width: thin; scrollbar-color: rgba(100,100,100,0.25) transparent; }
-                        `}</style>
+                        {/* scrollbar styles live in src/styles/custom-scrollbar.css; show scrollbar only when overflowing */}
 
                         <div className="hidden md:flex items-center gap-2 group">
                           {hasOverflow ? (
                             <button aria-hidden onClick={()=>scrollTabsBy(-240)} className={`p-2 rounded-md ${canScrollLeft ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'}`} disabled={!canScrollLeft}><ChevronLeft className="w-5 h-5"/></button>
                           ) : <div className="w-9" />}
-                          <div ref={tabListRef} onKeyDown={handleTabsKeyDown} role="tablist" aria-label="Exercises" className="flex-1 overflow-x-auto prog-tab-scroll">
-                            <div className="sticky top-0 bg-background/60 backdrop-blur-sm z-10 flex gap-2 pb-2 -mx-6 px-6" style={{ display: 'flex' }}>
+                          <div ref={tabListRef} onKeyDown={handleTabsKeyDown} role="tablist" aria-label="Exercises" className={`flex-1 ${hasOverflow ? 'overflow-x-auto prog-tab-scroll' : 'overflow-x-hidden'}`}>
+                            <div className="sticky top-0 bg-background/60 backdrop-blur-sm z-10 flex gap-2 p-4 rounded-md items-center overflow-auto" style={{ display: 'flex' }}>
                               {planExercises.map((exercise)=> {
                                 const prog = progressEntries[exercise.exercise_id];
                                 const loggedSets = prog ? (prog.set_details || []).filter((s:any)=> s.reps !== null || s.weight !== null).length : 0;
