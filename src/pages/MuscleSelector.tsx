@@ -37,55 +37,85 @@ interface Exercise {
   video_url: string | null;
 }
 
-const ExerciseImage = ({ src, alt }: { src: string | null; alt: string }) => {
-  const imgRef = useRef<HTMLImageElement | null>(null);
+const TRANSPARENT_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+const ensureShimmerStyle = () => {
+  if (typeof document === "undefined") return;
+  const styleId = "lazy-img-shimmer-keyframes";
+  if (document.getElementById(styleId)) return;
+
+  const style = document.createElement("style");
+  style.id = styleId;
+  style.textContent = `
+    @keyframes lazy-img-shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+  `;
+  document.head.appendChild(style);
+};
+
+const LazyExerciseImage: React.FC<{ src: string | null; alt: string }> = ({ src, alt }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const [hasError, setHasError] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
-    if (!imgRef.current) return;
+    ensureShimmerStyle();
+  }, []);
+
+  useEffect(() => {
+    const target = containerRef.current;
+    if (!target) return;
+
     const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
+      ([entry]) => {
+        if (entry.isIntersecting) {
           setIsVisible(true);
           observer.disconnect();
         }
       },
-      { rootMargin: "120px" }
+      { rootMargin: "150px" }
     );
-    observer.observe(imgRef.current);
+
+    observer.observe(target);
     return () => observer.disconnect();
   }, []);
 
-  const showSkeleton = !hasError && (!isVisible || !loaded);
-
-  if (!src || hasError) {
-    return (
-      <div className="w-16 h-16 rounded-lg border border-border/20 bg-muted flex items-center justify-center text-[11px] text-muted-foreground">
-        No image
-      </div>
-    );
-  }
-
   return (
-    <div className="relative w-16 h-16">
-      {showSkeleton && (
-        <div
-          className="absolute inset-0 rounded-lg border border-border/20 bg-muted animate-pulse"
-          aria-hidden
+    <div
+      ref={containerRef}
+      className="relative w-16 h-16 rounded-lg border border-border/20 overflow-hidden bg-muted/40"
+    >
+      {!hasLoaded && (
+        <div className="absolute inset-0 overflow-hidden rounded-lg" aria-hidden="true">
+          <div className="absolute inset-0 bg-muted/50" />
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: "linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent)",
+              backgroundSize: "200% 100%",
+              animation: "lazy-img-shimmer 1.2s linear infinite",
+            }}
+          />
+        </div>
+      )}
+      {isVisible && (
+        <img
+          src={src || TRANSPARENT_PLACEHOLDER}
+          alt={alt}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setHasLoaded(true)}
+          onError={(e) => {
+            if (e.currentTarget.src !== TRANSPARENT_PLACEHOLDER) {
+              e.currentTarget.src = TRANSPARENT_PLACEHOLDER;
+            }
+            setHasLoaded(true);
+          }}
         />
       )}
-      <img
-        ref={imgRef}
-        src={isVisible ? src : undefined}
-        alt={alt}
-        className={`w-16 h-16 object-cover rounded-lg border border-border/20 shadow ${loaded ? "opacity-100" : "opacity-0"}`}
-        loading="lazy"
-        decoding="async"
-        onError={() => setHasError(true)}
-        onLoad={() => setLoaded(true)}
-      />
     </div>
   );
 };
@@ -472,7 +502,10 @@ const MuscleSelector = () => {
                       .map((exercise) => (
                                 <Card key={exercise.id} className="border-border/30 hover:border-primary/50 transition-colors bg-card/90">
                           <CardHeader className="flex flex-row items-center gap-4">
-                            <ExerciseImage src={exercise.image_url} alt={exercise.name} />
+                            <LazyExerciseImage
+                              src={exercise.image_url}
+                              alt={exercise.name}
+                            />
                             <div className="flex-1">
                               <CardTitle className="text-lg flex items-center gap-2">
                                 {exercise.name}
