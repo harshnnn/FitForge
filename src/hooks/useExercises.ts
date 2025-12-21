@@ -14,10 +14,17 @@ export function useExercises(selectedMuscle: string | string[] | null) {
         let query = supabase.from("exercises").select("*");
 
         if (Array.isArray(selectedMuscle)) {
+          const muscles = selectedMuscle.includes("quads")
+            ? Array.from(new Set([...(selectedMuscle as string[]), "adductors"]))
+            : selectedMuscle;
           // query any of the provided muscle_group keys
-          query = query.in("muscle_group", selectedMuscle as string[]);
+          query = query.in("muscle_group", muscles as string[]);
         } else {
-          query = query.eq("muscle_group", selectedMuscle as string);
+          if (selectedMuscle === "quads") {
+            query = query.in("muscle_group", ["quads", "adductors"]);
+          } else {
+            query = query.eq("muscle_group", selectedMuscle as string);
+          }
         }
 
         const { data, error } = await query;

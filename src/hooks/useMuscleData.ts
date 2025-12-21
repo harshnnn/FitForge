@@ -23,7 +23,6 @@ const meshNameOverrides: Record<string, MeshNameOverride> = {
   lats: { label: "Lats", group: "Back" },
   lower_back: { label: "Lower Back", group: "Back" },
   glutes: { label: "Glutes", group: "Legs" },
-  adductors: { label: "Adductors", group: "Legs" },
   quads: { label: "Quads", group: "Legs" },
   hamstrings: { label: "Hamstrings", group: "Legs" },
   shin: { label: "Shin", group: "Legs" },
@@ -41,6 +40,7 @@ export function useMuscleData() {
   const linkedMuscles: Record<string, string[]> = {
     chest_upper_left: ["chest_upper_left", "chest_upper_right"],
     chest_upper_right: ["chest_upper_left", "chest_upper_right"],
+    quads: ["quads", "adductors"],
   };
   const backFacingMuscles = [
     "triceps",

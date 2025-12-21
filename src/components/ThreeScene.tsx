@@ -13,6 +13,7 @@ interface ThreeSceneProps {
 const linkedMuscles: Record<string, string[]> = {
   chest_upper_left: ["chest_upper_left", "chest_upper_right"],
   chest_upper_right: ["chest_upper_left", "chest_upper_right"],
+  quads: ["quads", "adductors"],
 };
 
 const ThreeScene = forwardRef(({ gender, onMuscleSelect, selectedMuscles, className }: ThreeSceneProps, ref) => {
@@ -140,7 +141,7 @@ const ThreeScene = forwardRef(({ gender, onMuscleSelect, selectedMuscles, classN
       lower_back: { key: "lower_back", label: "Lower Back", group: "Back" },
       //Lower Body
       glutes: { key: "glutes", label: "Glutes" },
-      adductors: { key: "adductors", label: "Adductors" },
+      adductors: { key: "quads", label: "Quads" },
       quads: { key: "quads", label: "Quads" },
       hamstrings: { key: "hamstrings", label: "Hamstrings" },
       shin: { key: "shin", label: "Shin" },
