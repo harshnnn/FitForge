@@ -6,7 +6,7 @@ import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dumbbell, Calendar, Target, X, Star, Video, Zap, Moon, Plus, User, Eye } from "lucide-react";
+import { Dumbbell, Calendar, Target, X, Star, Video, Zap, Moon, Plus, User, Eye, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogClose } from "@/components/ui/dialog";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
@@ -571,6 +571,12 @@ const WorkoutsPage = () => {
   const [settingPreferred, setSettingPreferred] = useState<string | null>(null);
   const [selectedMenuOpen, setSelectedMenuOpen] = useState(false);
   const clearTimerRef = useRef<any>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDeleteRef = useRef<{
+    plan: CustomPlan;
+    preferredSnapshot: { type: 'standard'|'custom'|null; id: string | null };
+  } | null>(null);
 
   useEffect(()=>{
     return ()=>{
@@ -615,6 +621,89 @@ const WorkoutsPage = () => {
     } finally {
       setSettingPreferred(null);
     }
+  };
+
+  const commitDeleteCustomPlan = async (planId: string) => {
+    try {
+      const { error: exercisesError } = await supabase
+        .from("user_custom_plan_exercises")
+        .delete()
+        .eq("user_custom_plan_id", planId);
+      if (exercisesError) throw exercisesError;
+
+      const { error: planError } = await supabase
+        .from("user_custom_plans")
+        .delete()
+        .eq("id", planId);
+      if (planError) throw planError;
+
+      toast.success("Custom plan deleted");
+    } catch (error) {
+      console.error("Error deleting custom plan:", error);
+      toast.error("Failed to delete plan");
+      // Restore on failure
+      const snapshot = pendingDeleteRef.current;
+      if (snapshot) {
+        setCustomPlans((prev) => [snapshot.plan, ...prev]);
+        setPreferredPlanState(snapshot.preferredSnapshot);
+      }
+    } finally {
+      pendingDeleteRef.current = null;
+      setPendingDeleteId(null);
+      if (deleteTimerRef.current) {
+        clearTimeout(deleteTimerRef.current);
+        deleteTimerRef.current = null;
+      }
+    }
+  };
+
+  const undoPendingDelete = () => {
+    const snapshot = pendingDeleteRef.current;
+    if (!snapshot) return;
+    if (deleteTimerRef.current) {
+      clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = null;
+    }
+    setCustomPlans((prev) => [snapshot.plan, ...prev]);
+    setPreferredPlanState(snapshot.preferredSnapshot);
+    setPendingDeleteId(null);
+    pendingDeleteRef.current = null;
+    toast.success("Delete undone");
+  };
+
+  const handleDeleteCustomPlan = (planId: string) => {
+    const target = customPlans.find((p) => p.id === planId);
+    if (!target) return;
+    const confirmed = window.confirm("Delete this custom plan? This will be permanent after 5 seconds.");
+    if (!confirmed) return;
+
+    // Clear any pending delete first
+    if (deleteTimerRef.current) {
+      clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = null;
+    }
+
+    const preferredSnapshot = { ...preferredPlan };
+    pendingDeleteRef.current = { plan: target, preferredSnapshot };
+    setPendingDeleteId(planId);
+
+    // Optimistic UI update
+    setCustomPlans((prev) => prev.filter((p) => p.id !== planId));
+    if (activeCustomPlan?.id === planId) setActiveCustomPlan(null);
+    if (preferredPlan.id === planId && preferredPlan.type === 'custom') {
+      setPreferredPlanState({ type: null, id: null });
+    }
+
+    toast.success("Deleting custom plan in 5s", {
+      action: {
+        label: "Undo",
+        onClick: undoPendingDelete,
+      },
+    });
+
+    deleteTimerRef.current = setTimeout(() => {
+      commitDeleteCustomPlan(planId);
+    }, 5000);
   };
 
   useEffect(() => {
@@ -912,7 +1001,7 @@ const WorkoutsPage = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -40 }}
             transition={{ duration: 0.5, delay: 0.8 }}
-            className="grid md:grid-cols-2 lg:grid-cols-3 gap-10"
+            className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 xl:gap-10"
           >
   
             {/* Custom Plans First */}
@@ -926,7 +1015,7 @@ const WorkoutsPage = () => {
                 transition={{ duration: 0.4, delay: index * 0.1 }}
                 whileHover={{ y: -5, transition: { duration: 0.2 } }}
               >
-                <Card className="flex flex-col border-0 shadow-xl hover:shadow-2xl transition-all duration-300 rounded-3xl bg-gradient-to-br from-yellow-50 via-background to-yellow-50/50 dark:from-yellow-950/20 dark:via-background dark:to-yellow-950/20 overflow-hidden group">
+                <Card className="flex flex-col border border-yellow-500/20 shadow-xl hover:shadow-amber-400/30 transition-all duration-300 rounded-3xl bg-gradient-to-br from-amber-50 via-background to-amber-100/60 dark:from-amber-950/15 dark:via-background dark:to-amber-900/20 overflow-hidden group ring-1 ring-transparent hover:ring-amber-300/50">
                   <CardHeader className="pb-4 bg-gradient-to-r from-yellow-500/10 to-orange-500/10">
                     <div className="flex items-center gap-2 mb-2">
                       <Star className="w-5 h-5 text-yellow-500" />
@@ -939,14 +1028,24 @@ const WorkoutsPage = () => {
                     <div className="flex gap-3 flex-wrap">
                       <Badge className="bg-gradient-primary text-sm px-4 py-2 rounded-full shadow-md font-semibold">Personalized</Badge>
                     </div>
-                      <div className="flex flex-col gap-3">
-                      <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-full shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActiveCustomPlan(plan)}>
-                        <Eye className="w-5 h-5 mr-3" /> View Plan
-                      </Button>
+                    <div className="flex flex-col gap-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-2xl shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActiveCustomPlan(plan)}>
+                          <Eye className="w-5 h-5 mr-3" /> View Plan
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="w-full border-amber-300/60 hover:border-amber-400/90 rounded-2xl"
+                          onClick={() => handleDeleteCustomPlan(plan.id)}
+                          disabled={pendingDeleteId === plan.id}
+                        >
+                          {pendingDeleteId === plan.id ? "Deleting..." : <span className="inline-flex items-center gap-2"><Trash2 className="w-4 h-4" /> Delete</span>}
+                        </Button>
+                      </div>
                       {preferredPlan.id===plan.id && preferredPlan.type==='custom' ? (
-                        <div className="w-full inline-flex items-center justify-center py-3 rounded-full bg-primary/10 text-primary font-semibold">Selected</div>
+                        <div className="w-full inline-flex items-center justify-center py-3 rounded-2xl bg-primary/10 text-primary font-semibold">Selected</div>
                       ) : (
-                        <Button variant="outline" className="w-full" onClick={()=>setPreferredPlan('custom', plan.id)} disabled={settingPreferred===plan.id}>
+                        <Button variant="outline" className="w-full rounded-2xl" onClick={()=>setPreferredPlan('custom', plan.id)} disabled={settingPreferred===plan.id || pendingDeleteId === plan.id}>
                           {settingPreferred===plan.id? 'Setting...' : 'Set as Preferred Program'}
                         </Button>
                       )}
