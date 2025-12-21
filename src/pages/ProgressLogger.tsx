@@ -19,6 +19,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import ThreeScene from "@/components/ThreeScene";
+import { useMuscleData } from "@/hooks/useMuscleData";
 
 // Minimal types used in this file
 interface WorkoutPlan { id: string; name: string; days_per_week: number; description?: string }
@@ -67,6 +71,130 @@ export default function ProgressLogger() {
   const [activeTab, setActiveTab] = useState<'log' | 'history'>('log');
   const [sessions, setSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const { prettify } = useMuscleData();
+  const [activeMuscle, setActiveMuscle] = useState<string | null>(null);
+
+  const progressData = useMemo(() => {
+    const empty = {
+      sessionRows: [] as any[],
+      totals: { sessions: 0, volume: 0, sets: 0, reps: 0 },
+      weeklyTrend: [] as any[],
+      muscleStats: [] as any[],
+      exerciseStats: [] as any[],
+    };
+    if (!sessions.length) return empty;
+
+    const parseSetDetails = (raw: any) => {
+      if (!raw) return [] as any[];
+      if (typeof raw === 'string') {
+        try { return JSON.parse(raw); } catch { return []; }
+      }
+      return Array.isArray(raw) ? raw : [];
+    };
+
+    const normalizeMuscle = (m?: string | null) => {
+      const key = (m || 'other').toLowerCase();
+      const alias: Record<string, string> = {
+        quadriceps: 'quads', quadricep: 'quads', quads: 'quads', adductors: 'quads',
+        calves: 'calves', calf: 'calves', hamstring: 'hamstrings',
+        glute: 'glutes', gluteus: 'glutes',
+        shoulders: 'side_delts', delts: 'side_delts',
+        traps: 'upper_traps', trap: 'upper_traps',
+        chest: 'chest_upper_left', upper_chest: 'chest_upper_left', lower_chest: 'chest_lower',
+        lats: 'lats', back: 'lats', lower_back: 'lower_back',
+        core: 'abs', abs: 'abs', obliques: 'obliques',
+        triceps: 'triceps', biceps: 'biceps', forearms: 'forearms', shin: 'shin', serratus_anterior: 'serratus_anterior',
+      };
+      return alias[key] || key;
+    };
+
+    const sessionRows = sessions.map((s: any) => {
+      const entries = (s.workout_progress_entries || []).map((e: any) => {
+        const setDetails = parseSetDetails(e.set_details);
+        const repsCompleted = typeof e.reps_completed === 'string'
+          ? (() => { try { return JSON.parse(e.reps_completed); } catch { return []; } })()
+          : (Array.isArray(e.reps_completed) ? e.reps_completed : []);
+        const totalRepsFromSets = setDetails.reduce((acc: number, sd: any) => acc + (sd?.reps || 0), 0);
+        const totalReps = totalRepsFromSets || (Array.isArray(repsCompleted) ? repsCompleted.reduce((a: number, b: number | null) => a + (b || 0), 0) : 0);
+        const firstWeight = setDetails.find((sd: any) => sd?.weight !== null && sd?.weight !== undefined)?.weight ?? e.weight_used ?? 0;
+        let volume = 0;
+        setDetails.forEach((sd: any) => {
+          const reps = sd?.reps ?? 0;
+          const wt = sd?.weight ?? firstWeight ?? 0;
+          volume += (reps || 0) * (wt || 0);
+        });
+        if (!volume && firstWeight && totalReps) volume = firstWeight * totalReps;
+
+        return {
+          ...e,
+          setDetails,
+          repsCompleted,
+          totalReps,
+          estimatedWeight: firstWeight || 0,
+          volume,
+          muscleKey: normalizeMuscle(e.exercise_muscle),
+        };
+      });
+
+      const sessionVolume = entries.reduce((acc: number, curr: any) => acc + curr.volume, 0);
+      const sessionSets = entries.reduce((acc: number, curr: any) => acc + (curr.actual_sets || curr.setDetails.length || 0), 0);
+      const sessionReps = entries.reduce((acc: number, curr: any) => acc + curr.totalReps, 0);
+
+      return { ...s, entries, sessionVolume, sessionSets, sessionReps };
+    });
+
+    const totals = sessionRows.reduce((acc: any, curr: any) => {
+      acc.sessions += 1;
+      acc.volume += curr.sessionVolume || 0;
+      acc.sets += curr.sessionSets || 0;
+      acc.reps += curr.sessionReps || 0;
+      return acc;
+    }, { sessions: 0, volume: 0, sets: 0, reps: 0 });
+
+    const weeklyMap: Record<string, any> = {};
+    sessionRows.forEach((sr: any) => {
+      const date = new Date(sr.workout_date);
+      const weekKey = format(date, 'yyyy-ww');
+      if (!weeklyMap[weekKey]) {
+        weeklyMap[weekKey] = { week: weekKey, label: format(date, 'MMM d'), volume: 0, sessions: 0, sets: 0 };
+      }
+      weeklyMap[weekKey].volume += sr.sessionVolume;
+      weeklyMap[weekKey].sessions += 1;
+      weeklyMap[weekKey].sets += sr.sessionSets;
+    });
+    const weeklyTrend = Object.values(weeklyMap).sort((a: any, b: any) => a.week.localeCompare(b.week));
+
+    const muscleMap: Record<string, any> = {};
+    sessionRows.forEach((sr: any) => {
+      (sr.entries || []).forEach((en: any) => {
+        const mk = en.muscleKey || 'other';
+        if (!muscleMap[mk]) {
+          muscleMap[mk] = { muscleKey: mk, label: prettify(mk), volume: 0, sets: 0, sessions: 0, bestWeight: 0 };
+        }
+        muscleMap[mk].volume += en.volume || 0;
+        muscleMap[mk].sets += en.actual_sets || en.setDetails?.length || 0;
+        muscleMap[mk].sessions += 1;
+        muscleMap[mk].bestWeight = Math.max(muscleMap[mk].bestWeight, en.estimatedWeight || 0);
+      });
+    });
+    const muscleStats = Object.values(muscleMap).sort((a: any, b: any) => b.volume - a.volume);
+
+    const exerciseMap: Record<string, any> = {};
+    sessionRows.forEach((sr: any) => {
+      (sr.entries || []).forEach((en: any) => {
+        const id = en.exercise_id;
+        if (!exerciseMap[id]) {
+          exerciseMap[id] = { exercise_id: id, name: en.exercise_name || id, volume: 0, sessions: 0, bestWeight: 0 };
+        }
+        exerciseMap[id].volume += en.volume || 0;
+        exerciseMap[id].sessions += 1;
+        exerciseMap[id].bestWeight = Math.max(exerciseMap[id].bestWeight, en.estimatedWeight || 0);
+      });
+    });
+    const exerciseStats = Object.values(exerciseMap).sort((a: any, b: any) => b.volume - a.volume);
+
+    return { sessionRows, totals, weeklyTrend, muscleStats, exerciseStats };
+  }, [sessions, prettify]);
 
   useEffect(() => {
     const loadPlans = async () => {
@@ -122,12 +250,15 @@ export default function ProgressLogger() {
 
         const exerciseIds = Array.from(new Set(sessionsData.flatMap((s:any) => (s.workout_progress_entries||[]).map((e:any)=>e.exercise_id))));
         const exerciseMap: Record<string,string> = {};
-        if (exerciseIds.length) { const { data: ex } = await supabase.from('exercises').select('id,name').in('id', exerciseIds); (ex||[]).forEach((x:any)=>exerciseMap[x.id]=x.name); }
+        if (exerciseIds.length) {
+          const { data: ex } = await supabase.from('exercises').select('id,name,muscle_group').in('id', exerciseIds);
+          (ex||[]).forEach((x:any)=>{ exerciseMap[x.id]=x.name; exerciseMap[`${x.id}__muscle`]=x.muscle_group; });
+        }
 
         const mapped = sessionsData.map((s:any)=>({
           ...s,
           plan_name: planMap[s.plan_id] || (s.plan_type === 'custom' ? 'Custom Plan' : 'Standard Plan'),
-          workout_progress_entries: (s.workout_progress_entries||[]).map((e:any)=>({ ...e, exercise_name: exerciseMap[e.exercise_id] || null }))
+          workout_progress_entries: (s.workout_progress_entries||[]).map((e:any)=>({ ...e, exercise_name: exerciseMap[e.exercise_id] || null, exercise_muscle: exerciseMap[`${e.exercise_id}__muscle`] || null }))
         }));
 
         setSessions(mapped);
@@ -138,6 +269,12 @@ export default function ProgressLogger() {
     };
     loadSessions();
   }, [isAuthenticated, activeTab]);
+
+  useEffect(() => {
+    if (!activeMuscle && progressData.muscleStats.length) {
+      setActiveMuscle(progressData.muscleStats[0].muscleKey);
+    }
+  }, [activeMuscle, progressData.muscleStats]);
 
   useEffect(() => {
     const loadExercises = async () => {
@@ -441,27 +578,188 @@ export default function ProgressLogger() {
         </div>
 
         {activeTab==='history' ? (
-          <Card className="mb-8 border-border/40 shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Clock className="w-5 h-5"/> Progress</CardTitle>
-              <CardDescription>Review past sessions</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loadingSessions? <div className="text-center py-8">Loading...</div> : sessions.length===0 ? <div className="text-center py-8">No sessions</div> : (
-                <div className="space-y-4">{sessions.map(s=> (
-                  <Card key={s.id}><CardContent>
-                    <div className="flex justify-between"><div><h4 className="font-semibold">{s.plan_name}</h4><p className="text-sm text-muted-foreground">{s.day_identifier} • {s.workout_date}</p></div><div className="text-right"><p className="text-sm">{s.workout_date}</p></div></div>
-                    <div className="mt-4 space-y-2">{(s.workout_progress_entries||[]).map((e:any)=> (
-                      <div key={e.id} className="p-3 border rounded bg-muted/10">
-                        <div className="flex justify-between"><div><p className="font-semibold">{e.exercise_name || e.exercise_id}</p><p className="text-sm text-muted-foreground">Planned: {e.planned_sets} × {e.planned_reps}</p></div><div className="text-right"><p className="font-semibold">{e.actual_sets} sets</p><p className="text-sm text-muted-foreground">{e.weight_used ? `${e.weight_used} ${e.weight_unit}` : 'No weight'}</p></div></div>
-                        {e.set_details ? (()=>{ try { const sd = typeof e.set_details === 'string' ? JSON.parse(e.set_details) : e.set_details; return <div className="mt-2 space-y-1">{sd.map((it:any, i:number)=>(<div key={i} className="text-sm">Set {i+1}: {it.weight ?? '—'} kg • reps: {it.reps ?? '—'}</div>))}</div> } catch(err){ return null } })() : (e.reps_completed && <p className="text-sm mt-2">Reps: {JSON.parse(e.reps_completed).join(', ')}</p>)}
+          <div className="space-y-8">
+            <Card className="border-border/40 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Clock className="w-5 h-5"/> Progress Overview</CardTitle>
+                <CardDescription>High-level stats from your logged sessions</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingSessions ? (
+                  <div className="text-center py-8">Loading...</div>
+                ) : progressData.sessionRows.length === 0 ? (
+                  <div className="text-center py-8">No sessions yet. Log a workout to see insights.</div>
+                ) : (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                      <div className="text-xs uppercase text-primary font-semibold mb-1">Sessions</div>
+                      <div className="text-3xl font-bold">{progressData.totals.sessions}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Logged workouts</p>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-gradient-to-br from-secondary/10 to-secondary/5 border border-secondary/20">
+                      <div className="text-xs uppercase text-secondary font-semibold mb-1">Volume (kg·reps)</div>
+                      <div className="text-3xl font-bold">{Math.round(progressData.totals.volume)}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Total mechanical work</p>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-100/20 to-amber-50/10 border border-amber-200/60 dark:from-amber-900/20 dark:to-amber-800/10">
+                      <div className="text-xs uppercase text-amber-600 font-semibold mb-1">Sets</div>
+                      <div className="text-3xl font-bold">{progressData.totals.sets}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Across all exercises</p>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-100/20 to-emerald-50/10 border border-emerald-200/60 dark:from-emerald-900/20 dark:to-emerald-800/10">
+                      <div className="text-xs uppercase text-emerald-600 font-semibold mb-1">Reps</div>
+                      <div className="text-3xl font-bold">{progressData.totals.reps}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Tracked total repetitions</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {progressData.sessionRows.length > 0 && (
+              <div className="grid lg:grid-cols-3 gap-6">
+                <Card className="lg:col-span-2 border-border/40 shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5"/> Weekly Volume</CardTitle>
+                    <CardDescription>Volume and set count grouped by training week</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      config={{
+                        volume: { label: "Volume", color: "hsl(var(--primary))" },
+                        sets: { label: "Sets", color: "hsl(var(--secondary))" },
+                      }}
+                      className="h-[320px]"
+                    >
+                      <AreaChart data={progressData.weeklyTrend}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
+                        <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                        <YAxis tickLine={false} axisLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Area type="monotone" dataKey="volume" stroke="var(--color-volume)" fill="var(--color-volume)" fillOpacity={0.2} />
+                        <Line type="monotone" dataKey="sets" stroke="var(--color-sets)" strokeWidth={2} dot={false} />
+                      </AreaChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-border/40 shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Dumbbell className="w-5 h-5"/> Top Exercises</CardTitle>
+                    <CardDescription>Ranked by total volume moved</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {progressData.exerciseStats.slice(0,6).map((ex:any, idx:number)=> (
+                      <div key={ex.exercise_id} className="p-3 rounded-xl border border-border/50 bg-muted/20">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-semibold">{idx+1}. {ex.name}</div>
+                            <div className="text-xs text-muted-foreground">{ex.sessions} sessions • Best {ex.bestWeight || 0} kg</div>
+                          </div>
+                          <div className="text-right font-mono text-sm">{Math.round(ex.volume)} vol</div>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-muted">
+                          <div className="h-2 rounded-full bg-gradient-to-r from-primary to-secondary" style={{ width: `${Math.min(100, (ex.volume / (progressData.exerciseStats[0]?.volume || 1)) * 100)}%` }} />
+                        </div>
                       </div>
-                    ))}</div>
-                  </CardContent></Card>
-                ))}</div>
-              )}
-            </CardContent>
-          </Card>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {progressData.muscleStats.length > 0 && (
+              <Card className="border-border/40 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Target className="w-5 h-5"/> Muscle Focus</CardTitle>
+                  <CardDescription>See where your training volume is concentrated</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid lg:grid-cols-2 gap-6 items-start">
+                    <div className="border border-border/50 rounded-2xl overflow-hidden bg-muted/20">
+                      <div className="h-[340px]">
+                        <ThreeScene
+                          gender="male"
+                          selectedMuscles={activeMuscle ? [activeMuscle] : []}
+                          onMuscleSelect={(key) => setActiveMuscle(key)}
+                          className="w-full h-full"
+                        />
+                      </div>
+                      {activeMuscle && (
+                        <div className="p-4 border-t border-border/60 bg-background/70">
+                          <div className="text-sm text-muted-foreground">Focused Muscle</div>
+                          <div className="text-xl font-semibold">{prettify(activeMuscle)}</div>
+                          <div className="flex gap-4 text-sm mt-2">
+                            <span>Volume: {Math.round((progressData.muscleStats.find((m:any)=>m.muscleKey===activeMuscle)?.volume) || 0)}</span>
+                            <span>Best: {progressData.muscleStats.find((m:any)=>m.muscleKey===activeMuscle)?.bestWeight || 0} kg</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-3">
+                      {progressData.muscleStats.map((m:any)=> (
+                        <button key={m.muscleKey} onClick={()=>setActiveMuscle(m.muscleKey)} className={`w-full text-left p-3 rounded-xl border transition ${activeMuscle===m.muscleKey ? 'border-primary ring-1 ring-primary/40 bg-primary/5' : 'border-border/50 hover:border-primary/40'}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-semibold">{m.label}</div>
+                              <div className="text-xs text-muted-foreground">{m.sessions} sessions • {m.sets} sets</div>
+                            </div>
+                            <div className="text-sm font-mono">{Math.round(m.volume)} vol</div>
+                          </div>
+                          <div className="mt-2 h-2 rounded-full bg-muted">
+                            <div className="h-2 rounded-full bg-gradient-to-r from-secondary to-primary" style={{ width: `${Math.min(100, (m.volume / (progressData.muscleStats[0]?.volume || 1)) * 100)}%` }} />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {progressData.sessionRows.length > 0 && (
+              <Card className="border-border/40 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Calendar className="w-5 h-5"/> Session Timeline</CardTitle>
+                  <CardDescription>Detailed log of your latest sessions</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {progressData.sessionRows.map((s:any)=> (
+                    <div key={s.id} className="p-4 rounded-xl border border-border/50 bg-muted/10">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-semibold">{s.plan_name}</div>
+                          <div className="text-xs text-muted-foreground">{s.day_identifier} • {s.workout_date}</div>
+                        </div>
+                        <div className="flex gap-3 text-sm">
+                          <span className="font-mono">{Math.round(s.sessionVolume)} vol</span>
+                          <span className="text-muted-foreground">{s.sessionSets} sets</span>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid md:grid-cols-2 gap-2">
+                        {(s.entries||[]).map((e:any)=> (
+                          <div key={e.id} className="p-3 rounded-lg border border-border/50 bg-background/80">
+                            <div className="flex justify-between text-sm font-semibold">
+                              <span>{e.exercise_name || e.exercise_id}</span>
+                              <span className="font-mono">{e.volume ? Math.round(e.volume) : 0} vol</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">Sets: {e.actual_sets || e.setDetails?.length || 0} • Best {e.estimatedWeight || 0} kg</div>
+                            {e.setDetails?.length ? (
+                              <div className="mt-2 text-xs space-y-1">
+                                {e.setDetails.map((sd:any, idx:number)=>(
+                                  <div key={idx} className="flex justify-between"><span>Set {idx+1}</span><span className="font-mono">{sd.weight ?? '—'} kg × {sd.reps ?? '—'}</span></div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
         ) : null}
 
         {activeTab === 'log' ? (
