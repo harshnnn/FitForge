@@ -13,7 +13,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
@@ -71,6 +71,7 @@ export default function ProgressLogger() {
   const [activeTab, setActiveTab] = useState<'log' | 'history'>('log');
   const [sessions, setSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const { prettify } = useMuscleData();
   const [activeMuscle, setActiveMuscle] = useState<string | null>(null);
 
@@ -458,6 +459,28 @@ export default function ProgressLogger() {
     setProgressEntries(prev=>{ const cur = prev[exerciseId]; if (!cur) return prev; const details=[...(cur.set_details||[])]; details.push({ reps: null, weight: null }); return { ...prev, [exerciseId]: { ...cur, set_details: details } }; });
   };
 
+  const handleDeleteSession = async (sessionId: string) => {
+    const confirmed = window.confirm('Clear this logged session? This removes all sets for that day.');
+    if (!confirmed) return;
+    setDeletingSessionId(sessionId);
+    try {
+      const { data: { user } } = await supabase.auth.getUser(); if (!user) throw new Error('Not authed');
+
+      const { error: entriesErr } = await supabase.from('workout_progress_entries').delete().eq('session_id', sessionId);
+      if (entriesErr) throw entriesErr;
+
+      const { error: sessionErr } = await supabase.from('workout_progress_sessions').delete().eq('id', sessionId).eq('user_id', user.id);
+      if (sessionErr) throw sessionErr;
+
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      toast.success('Session cleared');
+    } catch (err:any) {
+      console.error(err);
+      toast.error(err?.message || 'Failed to clear session');
+    }
+    setDeletingSessionId(null);
+  };
+
   const handleSaveProgress = async () => {
     if (!selectedPlan || !selectedDay || !selectedPlanType) { toast.error('Select plan/day'); return; }
     const has = Object.values(progressEntries).some(p=> (p.set_details||[]).some(s=> s.reps !== null || s.weight !== null));
@@ -569,11 +592,11 @@ export default function ProgressLogger() {
           <p className="text-muted-foreground">Track your workout progress and see your gains over time</p>
         </div>
 
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-center mb-8">
-          <div className="inline-flex rounded-full bg-muted/20 p-1">
-            <button className={`px-6 py-2 rounded-full font-semibold ${activeTab==='log'?'bg-background text-primary shadow':'text-muted-foreground'}`} onClick={()=>setActiveTab('log')}>Log Progress</button>
-            <button className={`px-6 py-2 rounded-full font-semibold ${activeTab==='history'?'bg-background text-primary shadow':'text-muted-foreground'}`} onClick={()=>setActiveTab('history')}>Progress</button>
+      <div className="container mx-auto max-w-6xl px-4 py-8">
+        <div className="flex justify-center mb-8 px-2">
+          <div className="inline-flex flex-wrap items-center justify-center gap-2 rounded-full bg-muted/20 p-1 w-full sm:w-auto">
+            <button className={`px-6 py-2 rounded-full font-semibold flex-1 sm:flex-none ${activeTab==='log'?'bg-background text-primary shadow':'text-muted-foreground'}`} onClick={()=>setActiveTab('log')}>Log Progress</button>
+            <button className={`px-6 py-2 rounded-full font-semibold flex-1 sm:flex-none ${activeTab==='history'?'bg-background text-primary shadow':'text-muted-foreground'}`} onClick={()=>setActiveTab('history')}>Progress</button>
           </div>
         </div>
 
@@ -590,7 +613,7 @@ export default function ProgressLogger() {
                 ) : progressData.sessionRows.length === 0 ? (
                   <div className="text-center py-8">No sessions yet. Log a workout to see insights.</div>
                 ) : (
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="p-4 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
                       <div className="text-xs uppercase text-primary font-semibold mb-1">Sessions</div>
                       <div className="text-3xl font-bold">{progressData.totals.sessions}</div>
@@ -624,22 +647,24 @@ export default function ProgressLogger() {
                     <CardDescription>Volume and set count grouped by training week</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <ChartContainer
-                      config={{
-                        volume: { label: "Volume", color: "hsl(var(--primary))" },
-                        sets: { label: "Sets", color: "hsl(var(--secondary))" },
-                      }}
-                      className="h-[320px]"
-                    >
-                      <AreaChart data={progressData.weeklyTrend}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                        <YAxis tickLine={false} axisLine={false} />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Area type="monotone" dataKey="volume" stroke="var(--color-volume)" fill="var(--color-volume)" fillOpacity={0.2} />
-                        <Line type="monotone" dataKey="sets" stroke="var(--color-sets)" strokeWidth={2} dot={false} />
-                      </AreaChart>
-                    </ChartContainer>
+                    <div className="-mx-2 px-2 overflow-x-auto">
+                      <ChartContainer
+                        config={{
+                          volume: { label: "Volume", color: "hsl(var(--primary))" },
+                          sets: { label: "Sets", color: "hsl(var(--secondary))" },
+                        }}
+                        className="h-[260px] sm:h-[300px] md:h-[320px] min-w-[320px] sm:min-w-[420px] md:min-w-[520px] w-full"
+                      >
+                        <AreaChart data={progressData.weeklyTrend}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
+                          <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                          <YAxis tickLine={false} axisLine={false} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Area type="monotone" dataKey="volume" stroke="var(--color-volume)" fill="var(--color-volume)" fillOpacity={0.2} />
+                          <Line type="monotone" dataKey="sets" stroke="var(--color-sets)" strokeWidth={2} dot={false} />
+                        </AreaChart>
+                      </ChartContainer>
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -648,7 +673,7 @@ export default function ProgressLogger() {
                     <CardTitle className="flex items-center gap-2"><Dumbbell className="w-5 h-5"/> Top Exercises</CardTitle>
                     <CardDescription>Ranked by total volume moved</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-3">
+                  <CardContent className="space-y-3 overflow-x-auto -mx-1 px-1 min-w-0 w-full">
                     {progressData.exerciseStats.slice(0,6).map((ex:any, idx:number)=> (
                       <div key={ex.exercise_id} className="p-3 rounded-xl border border-border/50 bg-muted/20">
                         <div className="flex items-center justify-between gap-2">
@@ -723,7 +748,7 @@ export default function ProgressLogger() {
                   <CardTitle className="flex items-center gap-2"><Calendar className="w-5 h-5"/> Session Timeline</CardTitle>
                   <CardDescription>Detailed log of your latest sessions</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 overflow-x-auto -mx-2 px-2">
                   {progressData.sessionRows.map((s:any)=> (
                     <div key={s.id} className="p-4 rounded-xl border border-border/50 bg-muted/10">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -731,12 +756,21 @@ export default function ProgressLogger() {
                           <div className="font-semibold">{s.plan_name}</div>
                           <div className="text-xs text-muted-foreground">{s.day_identifier} • {s.workout_date}</div>
                         </div>
-                        <div className="flex gap-3 text-sm">
+                        <div className="flex items-center gap-3 text-sm w-full sm:w-auto sm:justify-end flex-wrap">
                           <span className="font-mono">{Math.round(s.sessionVolume)} vol</span>
                           <span className="text-muted-foreground">{s.sessionSets} sets</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 w-full sm:w-auto justify-center"
+                            onClick={()=>handleDeleteSession(s.id)}
+                            disabled={deletingSessionId===s.id}
+                          >
+                            {deletingSessionId===s.id ? 'Clearing...' : <><Trash className="w-4 h-4 mr-1"/>Clear</>}
+                          </Button>
                         </div>
                       </div>
-                      <div className="mt-3 grid md:grid-cols-2 gap-2">
+                      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                         {(s.entries||[]).map((e:any)=> (
                           <div key={e.id} className="p-3 rounded-lg border border-border/50 bg-background/80">
                             <div className="flex justify-between text-sm font-semibold">
@@ -775,27 +809,27 @@ export default function ProgressLogger() {
               {/* Preferred plan preview / CTA */}
               {preferredPlan.id ? (
                 <Card className="p-3 border-primary/20 ring-1 ring-primary/10">
-                  <CardContent className="flex items-center justify-between">
+                  <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                       <div className="text-sm text-muted-foreground">Logging into</div>
                       <div className="text-lg font-extrabold">{(preferredPlan.type === 'custom' ? customPlans.find(p=>p.id===preferredPlan.id)?.name : workoutPlans.find(p=>p.id===preferredPlan.id)?.name) || 'Preferred Program'}</div>
                       <div className="text-sm text-muted-foreground">You can change this below</div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={()=>setShowPreferredModal(true)}>Change</Button>
-                      <Button variant="ghost" onClick={()=>navigate('/workouts')}>Browse plans</Button>
+                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                      <Button variant="outline" onClick={()=>setShowPreferredModal(true)} className="w-full sm:w-auto">Change</Button>
+                      <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse plans</Button>
                     </div>
                   </CardContent>
                 </Card>
               ) : (
-                <div className="flex items-center justify-between p-3 border border-dashed rounded">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border border-dashed rounded">
                   <div>
                     <div className="text-sm text-muted-foreground">No preferred program</div>
                     <div className="text-lg font-extrabold">Select a preferred program to log into by default</div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button onClick={()=>setShowPreferredModal(true)} className="bg-gradient-to-r from-purple-600 to-pink-600">Choose Preferred</Button>
-                    <Button variant="ghost" onClick={()=>navigate('/workouts')}>Browse all</Button>
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                    <Button onClick={()=>setShowPreferredModal(true)} className="bg-gradient-to-r from-purple-600 to-pink-600 w-full sm:w-auto">Choose Preferred</Button>
+                    <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse all</Button>
                   </div>
                 </div>
               )}
@@ -811,7 +845,7 @@ export default function ProgressLogger() {
               <CardDescription>Select the day you worked out and log your performance</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="workout-date">Workout Date</Label>
                   <Popover>
@@ -929,15 +963,15 @@ export default function ProgressLogger() {
                                   exit={{ opacity: 0, x: -20 * dir }}
                                   transition={{ duration: 0.22 }}
                                 >
-                                  <Card><CardContent className="p-6">
+                                  <Card><CardContent className="p-4 sm:p-6">
                                     <div className="flex items-start gap-4 mb-4"><img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/80/000000/FFFFFF?text=${(exercise as any).exercise.name?.charAt(0)||''}`} alt={(exercise as any).exercise.name} className="w-20 h-20 rounded-lg object-cover border"/><div className="flex-1"><h4 className="text-lg font-semibold">{(exercise as any).exercise.name}</h4><p className="text-sm text-muted-foreground capitalize">{((exercise as any).exercise.muscle_group||'').replace('_',' ')}</p><div className="flex gap-2 mt-2"><Badge variant="outline">Planned: {(exercise as any).sets} sets × {(exercise as any).reps} reps</Badge></div></div></div>
 
                                     <div className="space-y-3">{(progress.set_details||[]).map((s, idx)=> (
-                                      <div key={idx} className="grid grid-cols-12 gap-3 items-end">
-                                        <div className="col-span-2"><Label>Set {idx+1}</Label></div>
-                                        <div className="col-span-4"><Label htmlFor={`weight-${exercise.exercise_id}-${idx}`}>Weight</Label><Input id={`weight-${exercise.exercise_id}-${idx}`} type="number" step="0.5" value={s.weight ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { weight: e.target.value ? parseFloat(e.target.value) : null })} className="mt-1"/></div>
-                                        <div className="col-span-4"><Label htmlFor={`reps-${exercise.exercise_id}-${idx}`}>Reps</Label><Input id={`reps-${exercise.exercise_id}-${idx}`} type="number" min={0} value={s.reps ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { reps: e.target.value ? parseInt(e.target.value) : null })} className="mt-1"/></div>
-                                        <div className="col-span-2">{idx===(progress.set_details||[]).length-1 && <Button size="sm" onClick={()=>addSetToExercise(exercise.exercise_id)} className="mt-1">Add Set</Button>}</div>
+                                      <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                        <div className="sm:col-span-2"><Label>Set {idx+1}</Label></div>
+                                        <div className="sm:col-span-4"><Label htmlFor={`weight-${exercise.exercise_id}-${idx}`}>Weight</Label><Input id={`weight-${exercise.exercise_id}-${idx}`} inputMode="decimal" type="number" step="0.5" value={s.weight ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { weight: e.target.value ? parseFloat(e.target.value) : null })} className="mt-1"/></div>
+                                        <div className="sm:col-span-4"><Label htmlFor={`reps-${exercise.exercise_id}-${idx}`}>Reps</Label><Input id={`reps-${exercise.exercise_id}-${idx}`} inputMode="numeric" type="number" min={0} value={s.reps ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { reps: e.target.value ? parseInt(e.target.value) : null })} className="mt-1"/></div>
+                                        <div className="sm:col-span-2 flex sm:justify-end">{idx===(progress.set_details||[]).length-1 && <Button size="sm" onClick={()=>addSetToExercise(exercise.exercise_id)} className="mt-1 w-full sm:w-auto">Add Set</Button>}</div>
                                       </div>
                                     ))}</div>
 
@@ -953,7 +987,11 @@ export default function ProgressLogger() {
 
                       <div><Label htmlFor="session-notes">Session Notes (Optional)</Label><Textarea id="session-notes" value={sessionNotes} onChange={(e)=>setSessionNotes(e.target.value)} placeholder="Overall thoughts..." rows={3} className="mt-1"/></div>
 
-                      <div className="flex justify-end"><Button onClick={handleSaveProgress} disabled={saving} className="bg-gradient-to-r from-green-600 to-green-700">{saving? 'Saving...' : <><Save className="w-4 h-4 mr-2"/> Save Progress</>}</Button></div>
+                      <div className="flex justify-end md:justify-end sticky bottom-4 md:static z-20">
+                        <div className="w-full md:w-auto bg-background/90 md:bg-transparent backdrop-blur supports-[backdrop-filter]:backdrop-blur rounded-xl border md:border-0 px-3 py-2 md:px-0 md:py-0 shadow-sm md:shadow-none">
+                          <Button onClick={handleSaveProgress} disabled={saving} className="w-full md:w-auto bg-gradient-to-r from-green-600 to-green-700">{saving? 'Saving...' : <><Save className="w-4 h-4 mr-2"/> Save Progress</>}</Button>
+                        </div>
+                      </div>
                     </>
                   ) : <div className="text-center py-8"><Dumbbell className="w-12 h-12 text-muted-foreground mx-auto mb-4"/><p className="text-muted-foreground">No exercises found for this day.</p></div>}
                 </div>
