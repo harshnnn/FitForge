@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import React, { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, X, Save, Dumbbell, Calendar, Target, Zap, Menu } from "lucide-react";
+import { Plus, X, Save, Calendar, Target, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 import ThreeScene from "@/components/ThreeScene";
 import { useMuscleData } from "@/hooks/useMuscleData";
 import { useUserGender } from "@/hooks/useUserGender";
 import { useExercises } from "@/hooks/useExercises";
+import { Reorder } from "framer-motion";
 
 type Exercise = Tables<"exercises">;
 type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
@@ -43,6 +44,8 @@ const DAYS_OF_WEEK: { value: DayOfWeek; label: string; short: string }[] = [
 const CustomPlanCreator = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { planId } = useParams<{ planId?: string }>();
+  const isEditing = Boolean(planId);
   const [planName, setPlanName] = useState("");
   const [planDescription, setPlanDescription] = useState("");
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -72,15 +75,27 @@ const CustomPlanCreator = () => {
   const [sets, setSets] = useState(3);
   const [reps, setReps] = useState("8-12");
   const [notes, setNotes] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPlanLoading, setIsPlanLoading] = useState(false);
   const [showExerciseDialog, setShowExerciseDialog] = useState(false);
   const [muscleQuery, setMuscleQuery] = useState("");
   const [exerciseQuery, setExerciseQuery] = useState("");
   const [showMuscleFilters, setShowMuscleFilters] = useState(true);
 
+  const generateLocalId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+  const headingTitle = isEditing ? "Edit Custom Workout Plan" : "Create Custom Workout Plan";
+  const headingSubtitle = isEditing ? "Refine sets, reps, notes, and ordering for this plan." : "Design your perfect workout routine";
+
   useEffect(() => {
     loadExercises();
   }, []);
+
+  useEffect(() => {
+    if (planId) {
+      loadExistingPlan(planId);
+    }
+  }, [planId]);
 
   const filteredMuscles = (muscleQuery
     ? Object.keys(meshNameOverrides).filter(k => (meshNameOverrides[k]?.label || prettify(k)).toLowerCase().includes(muscleQuery.toLowerCase()))
@@ -140,11 +155,67 @@ const CustomPlanCreator = () => {
     }
   };
 
+  const loadExistingPlan = async (id: string) => {
+    setIsPlanLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: plan, error: planError } = await supabase
+        .from("user_custom_plans")
+        .select("*")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (planError) throw planError;
+      if (!plan) {
+        toast.error("Plan not found");
+        navigate("/workouts");
+        return;
+      }
+
+      setPlanName(plan.name || "");
+      setPlanDescription(plan.description || "");
+
+      const { data: exerciseRows, error: exercisesError } = await supabase
+        .from("user_custom_plan_exercises")
+        .select("id, day_of_week, sets, reps, notes, exercise:exercises(*)")
+        .eq("user_custom_plan_id", id)
+        .order("created_at", { ascending: true });
+
+      if (exercisesError) throw exercisesError;
+
+      const mapped = (exerciseRows || []).flatMap((row: any) => {
+        if (!row.exercise) return [];
+        return [{
+          id: row.id || generateLocalId(),
+          exercise: row.exercise as Exercise,
+          dayOfWeek: row.day_of_week as DayOfWeek,
+          sets: row.sets,
+          reps: row.reps,
+          notes: row.notes || undefined,
+        }];
+      });
+
+      setPlanExercises(mapped);
+      if (mapped[0]) {
+        setSelectedDay(mapped[0].dayOfWeek);
+      }
+    } catch (error) {
+      console.error("Error loading plan:", error);
+      toast.error("Unable to load this plan");
+      navigate("/workouts");
+    } finally {
+      setIsPlanLoading(false);
+    }
+  };
+
   const addExerciseToPlan = () => {
     if (!selectedExercise) return;
 
     const newPlanExercise: PlanExercise = {
-      id: `${selectedExercise.id}-${selectedDay}-${Date.now()}`,
+      id: generateLocalId(),
       exercise: selectedExercise,
       dayOfWeek: selectedDay,
       sets,
@@ -153,17 +224,57 @@ const CustomPlanCreator = () => {
     };
 
     setPlanExercises(prev => [...prev, newPlanExercise]);
+    resetExerciseForm();
+    toast.success("Exercise added to plan!");
+  };
+
+  const updateExerciseInPlan = () => {
+    if (!selectedExercise || !editingExerciseId) return;
+
+    setPlanExercises(prev => prev.map(ex => ex.id === editingExerciseId ? {
+      ...ex,
+      exercise: selectedExercise,
+      dayOfWeek: selectedDay,
+      sets,
+      reps,
+      notes: notes.trim() || undefined,
+    } : ex));
+
+    resetExerciseForm();
+    toast.success("Exercise updated");
+  };
+
+  const resetExerciseForm = () => {
     setSelectedExercise(null);
     setSets(3);
     setReps("8-12");
     setNotes("");
+    setSelectedDay("monday");
+    setEditingExerciseId(null);
     setShowExerciseDialog(false);
-    toast.success("Exercise added to plan!");
+  };
+
+  const startEditingExercise = (planExercise: PlanExercise) => {
+    setSelectedExercise(planExercise.exercise);
+    setSelectedDay(planExercise.dayOfWeek);
+    setSets(planExercise.sets);
+    setReps(planExercise.reps);
+    setNotes(planExercise.notes || "");
+    setEditingExerciseId(planExercise.id);
+    setShowExerciseDialog(true);
+    setTimeout(() => configRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   };
 
   const removeExerciseFromPlan = (exerciseId: string) => {
     setPlanExercises(prev => prev.filter(ex => ex.id !== exerciseId));
     toast.success("Exercise removed from plan");
+  };
+
+  const handleReorderForDay = (day: DayOfWeek, reordered: PlanExercise[]) => {
+    setPlanExercises(prev => {
+      const others = prev.filter(ex => ex.dayOfWeek !== day);
+      return [...others, ...reordered];
+    });
   };
 
   const getExercisesForDay = (day: DayOfWeek) => {
@@ -181,47 +292,94 @@ const CustomPlanCreator = () => {
       return;
     }
 
-    setIsLoading(true);
+    setIsSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { data: plan, error: planError } = await supabase
-        .from("user_custom_plans")
-        .insert({
-          name: planName.trim(),
-          description: planDescription.trim() || null,
-          user_id: user.id,
-        })
-        .select()
-        .single();
+      let targetPlanId = planId;
 
-      if (planError) throw planError;
+      if (isEditing && planId) {
+        const { error: planUpdateError } = await supabase
+          .from("user_custom_plans")
+          .update({
+            name: planName.trim(),
+            description: planDescription.trim() || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", planId)
+          .eq("user_id", user.id);
 
-      const exercisesToInsert = planExercises.map(ex => ({
-        user_custom_plan_id: plan.id,
+        if (planUpdateError) throw planUpdateError;
+
+        const { error: deleteError } = await supabase
+          .from("user_custom_plan_exercises")
+          .delete()
+          .eq("user_custom_plan_id", planId);
+
+        if (deleteError) throw deleteError;
+      } else {
+        const { data: plan, error: planError } = await supabase
+          .from("user_custom_plans")
+          .insert({
+            name: planName.trim(),
+            description: planDescription.trim() || null,
+            user_id: user.id,
+          })
+          .select()
+          .single();
+
+        if (planError) throw planError;
+        targetPlanId = plan.id;
+      }
+
+      if (!targetPlanId) throw new Error("Unable to determine plan id");
+
+      const orderedForSave: PlanExercise[] = [];
+      DAYS_OF_WEEK.forEach((day) => {
+        orderedForSave.push(...planExercises.filter(ex => ex.dayOfWeek === day.value));
+      });
+
+      const baseTime = Date.now();
+      const exercisesToInsert = orderedForSave.map((ex, idx) => ({
+        user_custom_plan_id: targetPlanId as string,
         exercise_id: ex.exercise.id,
         day_of_week: ex.dayOfWeek,
         sets: ex.sets,
         reps: ex.reps,
         notes: ex.notes || null,
+        created_at: new Date(baseTime + idx).toISOString(),
       }));
 
-      const { error: exercisesError } = await supabase
-        .from("user_custom_plan_exercises")
-        .insert(exercisesToInsert);
+      if (exercisesToInsert.length) {
+        const { error: exercisesError } = await supabase
+          .from("user_custom_plan_exercises")
+          .insert(exercisesToInsert);
 
-      if (exercisesError) throw exercisesError;
+        if (exercisesError) throw exercisesError;
+      }
 
-      toast.success("Custom workout plan created successfully!");
+      toast.success(isEditing ? "Custom workout plan updated!" : "Custom workout plan created successfully!");
       navigate("/workouts");
     } catch (error) {
       console.error("Error saving plan:", error);
       toast.error("Failed to save workout plan");
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
+
+  if (isPlanLoading && isEditing && planExercises.length === 0) {
+    return (
+      <Layout>
+        <div className="container mx-auto px-3 sm:px-4 py-12 max-w-5xl">
+          <div className="rounded-2xl border border-border/50 bg-muted/10 p-6 sm:p-8 text-center shadow-lg">
+            <div className="text-sm sm:text-base text-muted-foreground">Loading your custom plan...</div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -233,11 +391,18 @@ const CustomPlanCreator = () => {
               <Plus className="w-6 h-6 sm:w-8 sm:h-8 text-accent-foreground" />
             </div>
           </div>
+          {isEditing && (
+            <div className="flex justify-center mb-2">
+              <Badge variant="secondary" className="text-xs sm:text-sm px-3 py-1">
+                Editing existing plan
+              </Badge>
+            </div>
+          )}
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 bg-gradient-hero bg-clip-text text-transparent px-2">
-            Create Custom Workout Plan
+            {headingTitle}
           </h1>
           <p className="text-sm sm:text-base text-muted-foreground px-4">
-            Design your perfect workout routine
+            {headingSubtitle}
           </p>
         </div>
 
@@ -282,7 +447,13 @@ const CustomPlanCreator = () => {
             <div className="sticky top-16 z-10 lg:static">
               <Card className="border-border/50 shadow-lg">
                 <CardContent className="pt-4 sm:pt-6 pb-4">
-                  <Dialog open={showExerciseDialog} onOpenChange={setShowExerciseDialog}>
+                  <Dialog open={showExerciseDialog} onOpenChange={(open) => {
+                    if (!open) {
+                      resetExerciseForm();
+                    } else {
+                      setShowExerciseDialog(true);
+                    }
+                  }}>
                     <DialogTrigger asChild>
                       <Button className="w-full bg-gradient-accent hover:opacity-90 h-11 sm:h-12 text-sm sm:text-base font-medium">
                         <Plus className="w-4 h-4 mr-2" />
@@ -292,9 +463,11 @@ const CustomPlanCreator = () => {
                     <DialogContent className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] h-[95vh] sm:w-[95vw] sm:max-w-6xl sm:h-[90vh] overflow-hidden p-0">
                       <div className="flex flex-col h-full overflow-hidden">
                         <DialogHeader className="px-3 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-4 border-b shrink-0">
-                          <DialogTitle className="text-lg sm:text-xl">Add Exercise to Plan</DialogTitle>
+                          <DialogTitle className="text-lg sm:text-xl">
+                            {editingExerciseId ? "Edit Exercise" : "Add Exercise to Plan"}
+                          </DialogTitle>
                           <DialogDescription className="text-xs sm:text-sm">
-                            Select an exercise and configure its details
+                            {editingExerciseId ? "Update sets, reps, notes, or move to a different day" : "Select an exercise and configure its details"}
                           </DialogDescription>
                         </DialogHeader>
 
@@ -446,6 +619,7 @@ const CustomPlanCreator = () => {
                                           size="sm"
                                           onClick={() => {
                                             setSelectedExercise(ex as Exercise);
+                                            setEditingExerciseId(null);
                                             setShowExerciseDialog(true);
                                             setTimeout(() => configRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
                                           }}
@@ -544,19 +718,19 @@ const CustomPlanCreator = () => {
                         {/* Fixed Bottom Actions */}
                         <div className="shrink-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-3 py-3 sm:px-6 sm:py-4">
                           <div className="flex justify-end gap-2 sm:gap-3">
-                            <Button 
-                              variant="outline" 
-                              onClick={() => setShowExerciseDialog(false)} 
+                            <Button
+                              variant="outline"
+                              onClick={resetExerciseForm}
                               className="px-3 py-2 h-9 sm:h-10 text-xs sm:text-sm"
                             >
-                              Cancel
+                              {editingExerciseId ? "Discard" : "Cancel"}
                             </Button>
                             <Button
-                              onClick={addExerciseToPlan}
+                              onClick={editingExerciseId ? updateExerciseInPlan : addExerciseToPlan}
                               disabled={!selectedExercise}
                               className="bg-gradient-accent hover:opacity-90 px-4 py-2 h-9 sm:h-10 text-xs sm:text-sm font-medium"
                             >
-                              Add to Plan
+                              {editingExerciseId ? "Save Changes" : "Add to Plan"}
                             </Button>
                           </div>
                         </div>
@@ -590,15 +764,32 @@ const CustomPlanCreator = () => {
                   const dayExercises = getExercisesForDay(day.value);
                   return (
                     <div key={day.value} className="border rounded-lg p-3 sm:p-4 bg-muted/5 hover:bg-muted/10 transition-colors">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="font-semibold text-sm sm:text-base flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2">
                           <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
-                          <span className="hidden sm:inline">{day.label}</span>
-                          <span className="sm:hidden">{day.short}</span>
-                        </h3>
-                        <Badge variant="secondary" className="text-[10px] sm:text-xs px-2 py-0.5">
-                          {dayExercises.length}
-                        </Badge>
+                          <h3 className="font-semibold text-sm sm:text-base flex items-center gap-2">
+                            <span className="hidden sm:inline">{day.label}</span>
+                            <span className="sm:hidden">{day.short}</span>
+                          </h3>
+                          <Badge variant="secondary" className="text-[10px] sm:text-xs px-2 py-0.5">
+                            {dayExercises.length}
+                          </Badge>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 sm:h-9 px-2 sm:px-3 text-xs"
+                          onClick={() => {
+                            setSelectedDay(day.value);
+                            setEditingExerciseId(null);
+                            setSelectedExercise(null);
+                            setShowExerciseDialog(true);
+                            setTimeout(() => configRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+                          }}
+                        >
+                          <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1" />
+                          Add
+                        </Button>
                       </div>
 
                       {dayExercises.length === 0 ? (
@@ -607,43 +798,66 @@ const CustomPlanCreator = () => {
                         </p>
                       ) : (
                         <div className="space-y-2 sm:space-y-3">
-                          {dayExercises.map((planEx) => (
-                            <div 
-                              key={planEx.id} 
-                              className="flex items-center gap-2.5 sm:gap-3 bg-card/60 rounded-lg p-2.5 sm:p-3 border border-border/30 hover:border-border/60 hover:shadow-sm transition-all"
-                            >
-                              <img
-                                src={planEx.exercise.image_url || "/placeholder-exercise.jpg"}
-                                alt={planEx.exercise.name}
-                                className="w-12 h-12 sm:w-14 sm:h-14 rounded-md object-cover shrink-0"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-xs sm:text-sm truncate mb-0.5">
-                                  {planEx.exercise.name}
-                                </div>
-                                <div className="text-[10px] sm:text-xs text-muted-foreground">
-                                  <span className="font-medium">{planEx.sets} sets</span>
-                                  <span className="mx-1">×</span>
-                                  <span className="font-medium">{planEx.reps} reps</span>
-                                  {planEx.notes && (
-                                    <>
-                                      <span className="mx-1 hidden sm:inline">•</span>
-                                      <span className="block sm:inline mt-0.5 sm:mt-0 truncate">{planEx.notes}</span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeExerciseFromPlan(planEx.id)}
-                                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 sm:h-9 sm:w-9 p-0 shrink-0"
-                                aria-label="Remove exercise"
+                          <div className="text-[11px] sm:text-xs text-muted-foreground font-medium flex items-center gap-2">
+                            <GripVertical className="w-3.5 h-3.5" /> Drag to reorder
+                          </div>
+                          <Reorder.Group
+                            axis="y"
+                            values={dayExercises}
+                            onReorder={(newOrder) => handleReorderForDay(day.value, newOrder)}
+                            className="space-y-2 sm:space-y-3"
+                          >
+                            {dayExercises.map((planEx) => (
+                              <Reorder.Item
+                                key={planEx.id}
+                                value={planEx}
+                                className="flex items-center gap-2.5 sm:gap-3 bg-card/60 rounded-lg p-2.5 sm:p-3 border border-border/30 hover:border-border/60 hover:shadow-sm transition-all"
                               >
-                                <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                              </Button>
-                            </div>
-                          ))}
+                                <div className="rounded-md bg-muted/40 p-1.5 sm:p-2 text-muted-foreground cursor-grab active:cursor-grabbing">
+                                  <GripVertical className="w-4 h-4" />
+                                </div>
+                                <img
+                                  src={planEx.exercise.image_url || "/placeholder-exercise.jpg"}
+                                  alt={planEx.exercise.name}
+                                  className="w-12 h-12 sm:w-14 sm:h-14 rounded-md object-cover shrink-0"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-xs sm:text-sm truncate mb-0.5">
+                                    {planEx.exercise.name}
+                                  </div>
+                                  <div className="text-[10px] sm:text-xs text-muted-foreground flex flex-wrap items-center gap-1">
+                                    <span className="font-medium">{planEx.sets} sets</span>
+                                    <span className="text-muted-foreground/80">×</span>
+                                    <span className="font-medium">{planEx.reps} reps</span>
+                                    {planEx.notes && (
+                                      <span className="px-2 py-0.5 bg-muted/30 rounded-full truncate max-w-[160px] sm:max-w-[220px]">
+                                        {planEx.notes}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => startEditingExercise(planEx)}
+                                    className="h-8 sm:h-9 px-2 sm:px-3 text-xs"
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => removeExerciseFromPlan(planEx.id)}
+                                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 sm:h-9 sm:w-9 p-0"
+                                    aria-label="Remove exercise"
+                                  >
+                                    <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                  </Button>
+                                </div>
+                              </Reorder.Item>
+                            ))}
+                          </Reorder.Group>
                         </div>
                       )}
                     </div>
@@ -654,12 +868,12 @@ const CustomPlanCreator = () => {
                 <div className="sticky bottom-0 sm:static mt-6 pt-4 sm:pt-6 border-t bg-background/95 sm:bg-transparent backdrop-blur sm:backdrop-blur-none -mx-3 sm:mx-0 px-3 sm:px-0 pb-3 sm:pb-0">
                   <Button
                     onClick={savePlan}
-                    disabled={isLoading || !planName.trim() || planExercises.length === 0}
+                    disabled={isSaving || isPlanLoading || !planName.trim() || planExercises.length === 0}
                     className="w-full bg-gradient-primary hover:opacity-90 h-11 sm:h-12 text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl transition-all"
                     size="lg"
                   >
                     <Save className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                    {isLoading ? "Saving Plan..." : "Save Workout Plan"}
+                    {isSaving ? (isEditing ? "Updating Plan..." : "Saving Plan...") : (isEditing ? "Update Workout Plan" : "Save Workout Plan")}
                   </Button>
                 </div>
               </CardContent>

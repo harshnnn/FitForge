@@ -104,6 +104,14 @@ const App = () => (
               }
             />
             <Route
+              path="/create-plan/:planId"
+              element={
+                <AuthOnlyRoute>
+                  <CustomPlanCreator />
+                </AuthOnlyRoute>
+              }
+            />
+            <Route
               path="/supplements"
               element={
                 <GuestAwareRoute>

@@ -402,6 +402,7 @@ const CustomPlanModal = ({ plan, onClose, isOpen }: { plan: CustomPlan | null; o
   const [planExercises, setPlanExercises] = useState<CustomPlanExercise[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeDay, setActiveDay] = useState<string>("monday");
+  const navigate = useNavigate();
 
   const DAYS_OF_WEEK = [
     { value: "monday", label: "Monday", short: "Mon" },
@@ -424,7 +425,8 @@ const CustomPlanModal = ({ plan, onClose, isOpen }: { plan: CustomPlan | null; o
           .from("user_custom_plan_exercises")
           .select("*, exercise:exercises(*)")
           .eq("user_custom_plan_id", plan.id)
-          .order("day_of_week", { ascending: true });
+          .order("day_of_week", { ascending: true })
+          .order("created_at", { ascending: true });
         if (error) throw error;
         setPlanExercises(data || []);
       } catch (error) {
@@ -446,6 +448,12 @@ const CustomPlanModal = ({ plan, onClose, isOpen }: { plan: CustomPlan | null; o
   }, [planExercises, activeDay]);
 
   const isRestDay = exercisesForActiveDay.length === 0;
+
+  const handleEditPlan = () => {
+    if (!plan) return;
+    onClose();
+    navigate(`/create-plan/${plan.id}`);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()} modal={true}>
@@ -471,7 +479,8 @@ const CustomPlanModal = ({ plan, onClose, isOpen }: { plan: CustomPlan | null; o
                 
 
               </div>
-              <div>
+              <div className="flex flex-col items-end gap-3">
+                <div className="flex flex-wrap justify-end gap-2">
                   {daysWithExercises.map((day) => (
                     <Button
                       key={day.value}
@@ -483,6 +492,10 @@ const CustomPlanModal = ({ plan, onClose, isOpen }: { plan: CustomPlan | null; o
                     </Button>
                   ))}
                 </div>
+                <Button variant="secondary" className="w-full sm:w-auto" onClick={handleEditPlan}>
+                  Edit Plan
+                </Button>
+              </div>
               
             </div>
 
@@ -1100,13 +1113,20 @@ const WorkoutsPage = () => {
                           <Badge className="bg-gradient-primary text-sm px-4 py-2 rounded-full shadow-md font-semibold">Personalized</Badge>
                         </div>
                         <div className="flex flex-col gap-3">
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-2xl shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActiveCustomPlan(plan)}>
                               <Eye className="w-5 h-5 mr-3" /> View Plan
                             </Button>
                             <Button
                               variant="outline"
                               className="w-full border-amber-300/60 hover:border-amber-400/90 rounded-2xl"
+                              onClick={() => navigate(`/create-plan/${plan.id}`)}
+                            >
+                              Edit Plan
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="w-full border-amber-300/60 hover:border-amber-400/90 rounded-2xl col-span-2 sm:col-span-1"
                               onClick={() => handleDeleteCustomPlan(plan.id)}
                               disabled={pendingDeleteId === plan.id}
                             >
