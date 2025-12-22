@@ -38,7 +38,7 @@ const Layout = ({ children }: LayoutProps) => {
               <Dumbbell className="w-6 h-6 text-primary-foreground" />
             </div>
             <span className="text-2xl font-bold bg-gradient-hero bg-clip-text text-transparent">
-              FitForge
+              Replfy.Fit
             </span>
           </Link>
           

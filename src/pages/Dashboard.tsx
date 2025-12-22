@@ -89,7 +89,7 @@ const Dashboard = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2 bg-gradient-hero bg-clip-text text-transparent">
-            Welcome to FitForge
+            Welcome to Replfy.Fit
           </h1>
           <p className="text-muted-foreground">
             Your complete fitness companion

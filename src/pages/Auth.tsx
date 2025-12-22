@@ -61,7 +61,7 @@ const Auth = () => {
             </div>
           </div>
           <CardTitle className="text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent">
-            {isLogin ? "Welcome Back" : "Join FitForge"}
+            {isLogin ? "Welcome Back" : "Join Replfy.Fit"}
           </CardTitle>
           <CardDescription>
             {isLogin ? "Sign in to continue your fitness journey" : "Start your transformation today"}
