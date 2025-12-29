@@ -13,7 +13,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash, Trophy, PartyPopper } from "lucide-react";
+import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash, Trophy, PartyPopper, Plus, Search } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
@@ -29,8 +29,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 interface WorkoutPlan { id: string; name: string; days_per_week: number; description?: string }
 interface CustomPlan { id: string; name: string; description?: string }
 interface Exercise { id: string; name: string; image_url?: string; muscle_group?: string }
-interface PlanExercise { id: string; exercise_id: string; sets: number; reps: string; exercise: Exercise }
-interface CustomPlanExercise { id: string; exercise_id: string; sets: number; reps: string; exercise: Exercise }
+interface PlanExercise { id: string; exercise_id: string; sets: number; reps: string; exercise: Exercise; isAlternate?: boolean }
+interface CustomPlanExercise { id: string; exercise_id: string; sets: number; reps: string; exercise: Exercise; isAlternate?: boolean }
 
 interface ProgressEntry { exercise_id: string; planned_sets: number; planned_reps: string; set_details: { reps: number | null; weight: number | null }[]; notes: string }
 
@@ -82,6 +82,11 @@ export default function ProgressLogger() {
   const { prettify } = useMuscleData();
   const [activeMuscle, setActiveMuscle] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<{ title: string; detail?: string } | null>(null);
+  const [showAlternateModal, setShowAlternateModal] = useState(false);
+  const [exerciseSearchTerm, setExerciseSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<Exercise[]>([]);
+  const [searchingExercises, setSearchingExercises] = useState(false);
+  const [searchNotice, setSearchNotice] = useState<string | null>(null);
 
   const celebratePersonalBest = (exerciseName: string) => {
     setCelebration({ title: 'New Personal Best!', detail: `${exerciseName} just surpassed your previous high.` });
@@ -92,6 +97,14 @@ export default function ProgressLogger() {
     const t = setTimeout(() => setCelebration(null), 3200);
     return () => clearTimeout(t);
   }, [celebration]);
+
+  useEffect(() => {
+    if (showAlternateModal) return;
+    setExerciseSearchTerm("");
+    setSearchResults([]);
+    setSearchingExercises(false);
+    setSearchNotice(null);
+  }, [showAlternateModal]);
 
   const HistoryOverviewSkeleton = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -368,25 +381,26 @@ export default function ProgressLogger() {
       if (!selectedPlan || !selectedDay) { setPlanExercises([]); setBestSetsByExercise({}); setLoadingExercises(false); return; }
       setLoadingExercises(true);
       try {
-        let data: any = [];
+        let baseExercises: any[] = [];
         if (selectedPlanType === 'standard') {
           const dayNumber = parseInt(selectedDay.replace('day_',''));
           const res = await supabase.from('workout_plan_exercises').select('*, exercise:exercises(*)').eq('workout_plan_id', selectedPlan.id).eq('day_number', dayNumber).order('id');
-          data = res.data || [];
+          baseExercises = res.data || [];
         } else if (selectedPlanType === 'custom') {
           const res = await supabase.from('user_custom_plan_exercises').select('*, exercise:exercises(*)').eq('user_custom_plan_id', selectedPlan.id).eq('day_of_week', selectedDay as any).order('id');
-          data = res.data || [];
+          baseExercises = res.data || [];
         }
-        setPlanExercises(data);
 
         // init with plan defaults
         const initial: Record<string, ProgressEntry> = {};
-        (data||[]).forEach((ex:any)=>{
+        (baseExercises||[]).forEach((ex:any)=>{
           initial[ex.exercise_id] = { exercise_id: ex.exercise_id, planned_sets: ex.sets, planned_reps: ex.reps, set_details: Array.from({length: ex.sets}, ()=>({ reps: null, weight: null })), notes: '' };
         });
 
         let hydratedEntries: Record<string, ProgressEntry> = { ...initial };
         const hydratedSaved: Record<string, boolean> = {};
+        let existingEntries: any[] = [];
+        let combinedExercises = baseExercises;
 
         try {
           const { data: { user } } = await supabase.auth.getUser();
@@ -402,13 +416,15 @@ export default function ProgressLogger() {
               .maybeSingle();
 
             if (session?.id) {
-              const { data: existingEntries } = await supabase
+              const { data: existing } = await supabase
                 .from('workout_progress_entries')
                 .select('*')
                 .eq('session_id', session.id);
 
+              existingEntries = existing || [];
+
               (existingEntries||[]).forEach((e:any)=>{
-                const planEx = (data||[]).find((px:any)=>px.exercise_id===e.exercise_id);
+                const planEx = (baseExercises||[]).find((px:any)=>px.exercise_id===e.exercise_id);
                 const plannedSets = planEx?.sets ?? e.planned_sets ?? 0;
                 const plannedReps = planEx?.reps ?? e.planned_reps ?? '';
                 let parsedDetails: any = e.set_details;
@@ -433,8 +449,29 @@ export default function ProgressLogger() {
               if (session.notes) setSessionNotes(session.notes);
             }
 
+            // surface any saved exercises not present in the plan (alternate swaps)
+            const missingEntries = existingEntries.filter((e:any)=>!(baseExercises||[]).some((px:any)=>px.exercise_id===e.exercise_id));
+            if (missingEntries.length) {
+              const { data: extraMeta } = await supabase.from('exercises').select('*').in('id', missingEntries.map((m:any)=>m.exercise_id));
+              const additionalExercises = missingEntries.map((miss:any)=>{
+                const meta = (extraMeta||[]).find((m:any)=>m.id===miss.exercise_id);
+                const parsed = hydratedEntries[miss.exercise_id]?.set_details || [];
+                const plannedSets = hydratedEntries[miss.exercise_id]?.planned_sets || parsed.length || miss.planned_sets || 3;
+                const plannedReps = hydratedEntries[miss.exercise_id]?.planned_reps || miss.planned_reps || '8-12';
+                return {
+                  id: `alt-${miss.exercise_id}`,
+                  exercise_id: miss.exercise_id,
+                  sets: plannedSets,
+                  reps: plannedReps,
+                  exercise: meta || { id: miss.exercise_id, name: 'Alternate exercise', muscle_group: null },
+                  isAlternate: true,
+                } as any;
+              });
+              combinedExercises = [...baseExercises, ...additionalExercises];
+            }
+
             // compute best-per-set across all prior sessions for current exercises
-            const exerciseIds = (data||[]).map((ex:any)=>ex.exercise_id);
+            const exerciseIds = (combinedExercises||[]).map((ex:any)=>ex.exercise_id);
             const { data: userSessions } = await supabase
               .from('workout_progress_sessions')
               .select('id')
@@ -472,22 +509,30 @@ export default function ProgressLogger() {
               setBestSetsByExercise({});
             }
           }
+          else {
+            setBestSetsByExercise({});
+          }
         } catch (hydrationErr) {
           console.error(hydrationErr);
         }
 
+        setPlanExercises(combinedExercises);
         setProgressEntries(hydratedEntries);
         setSavedExercises(hydratedSaved);
 
         // set default active exercise tab to first exercise
-        if ((data||[]).length > 0) setActiveExerciseTab(data[0].exercise_id);
+        if ((combinedExercises||[]).length > 0) {
+          setActiveExerciseTab(combinedExercises[0].exercise_id);
+        } else {
+          setActiveExerciseTab(null);
+        }
       } catch (err) {
         console.error(err);
       }
       setLoadingExercises(false);
     };
     loadExercises();
-  }, [selectedPlan, selectedDay, selectedPlanType]);
+  }, [selectedPlan, selectedDay, selectedPlanType, workoutDate]);
 
   // keep custom plan day in sync with selected date, while allowing manual override
   useEffect(()=>{
@@ -649,6 +694,101 @@ export default function ProgressLogger() {
     setProgressEntries({});
     setSavedExercises({});
     setBestSetsByExercise({});
+    setActiveExerciseTab(null);
+    setShowAlternateModal(false);
+    setExerciseSearchTerm("");
+    setSearchResults([]);
+  };
+
+  const performExerciseSearch = async () => {
+    const term = exerciseSearchTerm.trim();
+    if (term.length < 2) {
+      setSearchNotice('Type at least 2 characters to search');
+      setSearchResults([]);
+      setSearchingExercises(false);
+      return;
+    }
+    setSearchingExercises(true);
+    try {
+      const { data, error } = await supabase
+        .from('exercises')
+        .select('*')
+        .ilike('name', `${term}%`)
+        .order('name')
+        .limit(20);
+      if (error) throw error;
+      setSearchResults(data || []);
+      setSearchNotice(data?.length ? null : 'No matches found');
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not search exercises');
+      setSearchNotice('Search failed. Try again.');
+    }
+    setSearchingExercises(false);
+  };
+
+  const handleAddAlternateExercise = (exercise: Exercise) => {
+    if (!exercise?.id) return;
+    const fallback = planExercises.find(p=>p.exercise_id===activeExerciseTab) || planExercises[0];
+    const defaultSets = fallback?.sets || 3;
+    const defaultReps = fallback?.reps || '8-12';
+
+    setPlanExercises(prev => {
+      if (prev.some(p=>p.exercise_id===exercise.id)) return prev;
+      return [...prev, { id: `alt-${exercise.id}`, exercise_id: exercise.id, sets: defaultSets, reps: defaultReps, exercise, isAlternate: true } as any];
+    });
+
+    setProgressEntries(prev => {
+      if (prev[exercise.id]) return prev;
+      return {
+        ...prev,
+        [exercise.id]: {
+          exercise_id: exercise.id,
+          planned_sets: defaultSets,
+          planned_reps: defaultReps,
+          set_details: Array.from({ length: defaultSets }, ()=>({ reps: null, weight: null })),
+          notes: '',
+        },
+      };
+    });
+
+    setSavedExercises(prev => { const next = { ...prev }; delete next[exercise.id]; return next; });
+    setActiveExerciseTab(exercise.id);
+    setShowAlternateModal(false);
+  };
+
+  // auto-search as the user types with a light debounce
+  useEffect(() => {
+    const term = exerciseSearchTerm.trim();
+    if (term.length === 0) {
+      setSearchResults([]);
+      setSearchNotice(null);
+      return;
+    }
+    if (term.length < 2) {
+      setSearchNotice('Type at least 2 characters to search');
+      setSearchResults([]);
+      return;
+    }
+    const t = setTimeout(() => { performExerciseSearch(); }, 180);
+    return () => clearTimeout(t);
+  }, [exerciseSearchTerm]);
+
+  const handleRemoveAlternateExercise = (exerciseId: string) => {
+    setPlanExercises(prev => {
+      const filtered = prev.filter(p => !(p.exercise_id === exerciseId && p.isAlternate));
+      if (activeExerciseTab === exerciseId) {
+        const nextEx = filtered[0];
+        setActiveExerciseTab(nextEx ? nextEx.exercise_id : null);
+      }
+      return filtered;
+    });
+    setProgressEntries(prev => {
+      const next = { ...prev };
+      delete next[exerciseId];
+      return next;
+    });
+    setSavedExercises(prev => { const next = { ...prev }; delete next[exerciseId]; return next; });
   };
 
   const updateSetDetail = (exerciseId: string, idx: number, delta: { reps?: number | null; weight?: number | null }) => {
@@ -1216,7 +1356,12 @@ export default function ProgressLogger() {
                 <div className="space-y-6">
                   {loadingExercises ? <ExerciseLoadingSkeleton /> : planExercises.length>0 ? (
                     <>
-                      <h3 className="text-xl font-semibold">Exercises Completed</h3>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <h3 className="text-xl font-semibold">Exercises Completed</h3>
+                        <Button variant="outline" size="sm" onClick={()=>setShowAlternateModal(true)} className="w-full sm:w-auto">
+                          <Plus className="w-4 h-4 mr-2"/>Need an alternate exercise?
+                        </Button>
+                      </div>
                       <div>
                         {/* Mobile fallback: Select for small screens */}
                         <div className="md:hidden mb-4">
@@ -1253,7 +1398,10 @@ export default function ProgressLogger() {
                                   >
                                     <img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/48/111827/FFFFFF?text=${encodeURIComponent(((exercise as any).exercise.name||'').charAt(0) || '')}`} alt={(exercise as any).exercise.name} className="w-10 h-10 rounded-md object-cover border" />
                                     <div className="flex-1 min-w-0">
-                                      <div className="font-medium text-sm truncate">{(exercise as any).exercise.name}</div>
+                                      <div className="font-medium text-sm truncate flex items-center gap-2">
+                                        <span className="truncate">{(exercise as any).exercise.name}</span>
+                                        {exercise.isAlternate && <Badge variant="outline" className="text-[10px] px-2">Alternate</Badge>}
+                                      </div>
                                       <div className="text-xs text-muted-foreground flex items-center justify-between">
                                         <span>Planned: {(exercise as any).sets}×{(exercise as any).reps}</span>
                                         <div className="flex items-center gap-2">
@@ -1293,7 +1441,10 @@ export default function ProgressLogger() {
                                       <div className="flex items-start gap-4 flex-1">
                                         <img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/80/000000/FFFFFF?text=${(exercise as any).exercise.name?.charAt(0)||''}`} alt={(exercise as any).exercise.name} className="w-20 h-20 rounded-lg object-cover border"/>
                                         <div className="flex-1">
-                                          <h4 className="text-lg font-semibold">{(exercise as any).exercise.name}</h4>
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <h4 className="text-lg font-semibold">{(exercise as any).exercise.name}</h4>
+                                            {exercise.isAlternate && <Badge variant="outline" className="text-xs">Alternate</Badge>}
+                                          </div>
                                           <p className="text-sm text-muted-foreground capitalize">{((exercise as any).exercise.muscle_group||'').replace('_',' ')}</p>
                                           <div className="flex gap-2 mt-2"><Badge variant="outline">Planned: {(exercise as any).sets} sets × {(exercise as any).reps} reps</Badge></div>
                                         </div>
@@ -1301,6 +1452,16 @@ export default function ProgressLogger() {
                                       <div className="flex items-center gap-2 sm:self-start">
                                         {savedExercises[exercise.exercise_id] && (
                                           <Badge variant="secondary" className="border-emerald-200 text-emerald-700 bg-emerald-50">Saved</Badge>
+                                        )}
+                                        {exercise.isAlternate && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-red-600"
+                                            onClick={()=>handleRemoveAlternateExercise(exercise.exercise_id)}
+                                          >
+                                            Remove
+                                          </Button>
                                         )}
                                         <Button
                                           variant="outline"
@@ -1367,6 +1528,47 @@ export default function ProgressLogger() {
             </CardContent>
           </Card>
         )}
+
+        <Dialog open={showAlternateModal} onOpenChange={setShowAlternateModal}>
+          <DialogContent className="max-w-2xl">
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h3 className="text-xl font-bold">Find an alternate exercise</h3>
+                <p className="text-sm text-muted-foreground">Search the library and swap in an exercise when equipment is unavailable.</p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  placeholder="Search by name (e.g., dumbbell row)"
+                  value={exerciseSearchTerm}
+                  onChange={(e)=>setExerciseSearchTerm(e.target.value)}
+                  onKeyDown={(e)=>{ if (e.key==='Enter') performExerciseSearch(); }}
+                  autoFocus
+                />
+                <Button onClick={performExerciseSearch} disabled={searchingExercises} className="sm:w-32 w-full">
+                  {searchingExercises ? 'Searching...' : (<><Search className="w-4 h-4 mr-2"/>Search</>)}
+                </Button>
+              </div>
+              <div className="max-h-80 overflow-y-auto space-y-2 rounded-lg border border-border/40 bg-muted/10 p-3">
+                {searchingExercises && <div className="text-sm text-muted-foreground">Searching...</div>}
+                {!searchingExercises && searchNotice && <div className="text-sm text-muted-foreground">{searchNotice}</div>}
+                {!searchingExercises && searchResults.length === 0 && !searchNotice && (
+                  <div className="text-sm text-muted-foreground">Start typing to see matches.</div>
+                )}
+                {searchResults.length > 0 && searchResults.map((ex)=> (
+                  <div key={ex.id} className="p-3 rounded-lg border border-border/50 bg-background/80 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{ex.name}</div>
+                      <div className="text-xs text-muted-foreground capitalize">{(ex.muscle_group || '').replace('_',' ') || 'Muscle group'}</div>
+                    </div>
+                    <Button size="sm" onClick={()=>handleAddAlternateExercise(ex)} className="whitespace-nowrap">
+                      <Plus className="w-4 h-4 mr-1"/>Add alternate
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Preferred selection modal */}
         <Dialog open={showPreferredModal} onOpenChange={setShowPreferredModal}>
