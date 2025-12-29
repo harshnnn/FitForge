@@ -13,7 +13,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash } from "lucide-react";
+import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash, Trophy } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
@@ -68,6 +68,9 @@ export default function ProgressLogger() {
   const [workoutDate, setWorkoutDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingExerciseId, setSavingExerciseId] = useState<string | null>(null);
+  const [savedExercises, setSavedExercises] = useState<Record<string, boolean>>({});
+  const [bestSetsByExercise, setBestSetsByExercise] = useState<Record<string, { weight: number | null; reps: number | null }[]>>({});
   const [activeTab, setActiveTab] = useState<'log' | 'history'>('log');
   const [sessions, setSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
@@ -279,7 +282,7 @@ export default function ProgressLogger() {
 
   useEffect(() => {
     const loadExercises = async () => {
-      if (!selectedPlan || !selectedDay) return setPlanExercises([]);
+      if (!selectedPlan || !selectedDay) { setPlanExercises([]); setBestSetsByExercise({}); return; }
       setLoading(true);
       try {
         let data: any = [];
@@ -293,12 +296,106 @@ export default function ProgressLogger() {
         }
         setPlanExercises(data);
 
-        // init progress entries
+        // init with plan defaults
         const initial: Record<string, ProgressEntry> = {};
         (data||[]).forEach((ex:any)=>{
           initial[ex.exercise_id] = { exercise_id: ex.exercise_id, planned_sets: ex.sets, planned_reps: ex.reps, set_details: Array.from({length: ex.sets}, ()=>({ reps: null, weight: null })), notes: '' };
         });
-        setProgressEntries(initial);
+
+        let hydratedEntries: Record<string, ProgressEntry> = { ...initial };
+        const hydratedSaved: Record<string, boolean> = {};
+
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data: session } = await supabase
+              .from('workout_progress_sessions')
+              .select('id, notes')
+              .eq('user_id', user.id)
+              .eq('plan_type', selectedPlanType)
+              .eq('plan_id', (selectedPlan as any)?.id)
+              .eq('day_identifier', selectedDay)
+              .eq('workout_date', workoutDate)
+              .maybeSingle();
+
+            if (session?.id) {
+              const { data: existingEntries } = await supabase
+                .from('workout_progress_entries')
+                .select('*')
+                .eq('session_id', session.id);
+
+              (existingEntries||[]).forEach((e:any)=>{
+                const planEx = (data||[]).find((px:any)=>px.exercise_id===e.exercise_id);
+                const plannedSets = planEx?.sets ?? e.planned_sets ?? 0;
+                const plannedReps = planEx?.reps ?? e.planned_reps ?? '';
+                let parsedDetails: any = e.set_details;
+                if (typeof parsedDetails === 'string') {
+                  try { parsedDetails = JSON.parse(parsedDetails); } catch { parsedDetails = []; }
+                }
+                if (!Array.isArray(parsedDetails)) parsedDetails = [];
+                if (parsedDetails.length === 0 && plannedSets > 0) {
+                  parsedDetails = Array.from({ length: plannedSets }, ()=>({ reps: null, weight: null }));
+                }
+                const hasAny = parsedDetails.some((s:any)=> (s?.reps !== null && s?.reps !== undefined) || (s?.weight !== null && s?.weight !== undefined));
+                hydratedEntries[e.exercise_id] = {
+                  exercise_id: e.exercise_id,
+                  planned_sets: plannedSets,
+                  planned_reps: plannedReps,
+                  set_details: parsedDetails,
+                  notes: e.notes || '',
+                };
+                if (hasAny) hydratedSaved[e.exercise_id] = true;
+              });
+
+              if (session.notes) setSessionNotes(session.notes);
+            }
+
+            // compute best-per-set across all prior sessions for current exercises
+            const exerciseIds = (data||[]).map((ex:any)=>ex.exercise_id);
+            const { data: userSessions } = await supabase
+              .from('workout_progress_sessions')
+              .select('id')
+              .eq('user_id', user.id);
+
+            const sessionIds = (userSessions||[]).map((s:any)=>s.id);
+            if (exerciseIds.length && sessionIds.length) {
+              const { data: priorEntries } = await supabase
+                .from('workout_progress_entries')
+                .select('exercise_id,set_details')
+                .in('session_id', sessionIds)
+                .in('exercise_id', exerciseIds);
+
+              const bestMap: Record<string, { weight: number | null; reps: number | null }[]> = {};
+              (priorEntries||[]).forEach((e:any)=>{
+                let details = e.set_details;
+                if (typeof details === 'string') {
+                  try { details = JSON.parse(details); } catch { details = []; }
+                }
+                if (!Array.isArray(details)) details = [];
+                details.forEach((sd:any, idx:number)=>{
+                  const weight = sd?.weight ?? null;
+                  const reps = sd?.reps ?? null;
+                  const score = (weight || 0) * (reps || 0);
+                  if (!bestMap[e.exercise_id]) bestMap[e.exercise_id] = [];
+                  const current = bestMap[e.exercise_id][idx];
+                  const currentScore = current ? ((current.weight || 0) * (current.reps || 0)) : -1;
+                  if (score > currentScore) {
+                    bestMap[e.exercise_id][idx] = { weight, reps };
+                  }
+                });
+              });
+              setBestSetsByExercise(bestMap);
+            } else {
+              setBestSetsByExercise({});
+            }
+          }
+        } catch (hydrationErr) {
+          console.error(hydrationErr);
+        }
+
+        setProgressEntries(hydratedEntries);
+        setSavedExercises(hydratedSaved);
+
         // set default active exercise tab to first exercise
         if ((data||[]).length > 0) setActiveExerciseTab(data[0].exercise_id);
       } catch (err) {
@@ -447,16 +544,102 @@ export default function ProgressLogger() {
     return DAYS_OF_WEEK;
   }, [selectedPlan, selectedPlanType]);
 
-  const handlePlanSelect = (type: 'standard'|'custom', plan: any) => { setSelectedPlanType(type); setSelectedPlan(plan); setSelectedDay(''); setPlanExercises([]); setProgressEntries({}); };
+  const handlePlanSelect = (type: 'standard'|'custom', plan: any) => {
+    setSelectedPlanType(type);
+    setSelectedPlan(plan);
+    setSelectedDay('');
+    setPlanExercises([]);
+    setProgressEntries({});
+    setSavedExercises({});
+    setBestSetsByExercise({});
+  };
 
   const updateSetDetail = (exerciseId: string, idx: number, delta: { reps?: number | null; weight?: number | null }) => {
     setProgressEntries(prev=>{
       const cur = prev[exerciseId]; if (!cur) return prev; const details = [...(cur.set_details||[])]; details[idx] = { ...details[idx], ...delta }; return { ...prev, [exerciseId]: { ...cur, set_details: details } };
     });
+    setSavedExercises(prev => { const next = { ...prev }; delete next[exerciseId]; return next; });
   };
 
   const addSetToExercise = (exerciseId: string) => {
     setProgressEntries(prev=>{ const cur = prev[exerciseId]; if (!cur) return prev; const details=[...(cur.set_details||[])]; details.push({ reps: null, weight: null }); return { ...prev, [exerciseId]: { ...cur, set_details: details } }; });
+    setSavedExercises(prev => { const next = { ...prev }; delete next[exerciseId]; return next; });
+  };
+
+  const findOrCreateSession = async (userId: string) => {
+    const { data: existingSessions, error: findErr } = await supabase
+      .from('workout_progress_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('plan_type', selectedPlanType)
+      .eq('plan_id', (selectedPlan as any)?.id)
+      .eq('day_identifier', selectedDay)
+      .eq('workout_date', workoutDate)
+      .limit(1);
+
+    if (findErr) throw findErr;
+    if (existingSessions && existingSessions.length > 0) {
+      return existingSessions[0].id as string;
+    }
+
+    const { data: insertedSession, error: sessionError } = await supabase
+      .from('workout_progress_sessions')
+      .insert({
+        user_id: userId,
+        plan_type: selectedPlanType,
+        plan_id: (selectedPlan as any)?.id,
+        day_identifier: selectedDay,
+        workout_date: workoutDate,
+        notes: sessionNotes.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (sessionError) throw sessionError;
+    return insertedSession.id as string;
+  };
+
+  const handleSaveExercise = async (exerciseId: string) => {
+    if (!selectedPlan || !selectedDay || !selectedPlanType) { toast.error('Select plan/day'); return; }
+    const entry = progressEntries[exerciseId];
+    if (!entry) { toast.error('Exercise not found in plan'); return; }
+    const setDetails = entry.set_details || [];
+    const hasAny = setDetails.some(s=> (s.reps !== null && s.reps !== undefined) || (s.weight !== null && s.weight !== undefined));
+    if (!hasAny) { toast.error('Log at least one set for this exercise'); return; }
+
+    setSavingExerciseId(exerciseId);
+    try {
+      const { data: { user } } = await supabase.auth.getUser(); if (!user) throw new Error('Not authed');
+      const sessionId = await findOrCreateSession(user.id);
+
+      await supabase.from('workout_progress_entries').delete().eq('session_id', sessionId).eq('exercise_id', exerciseId);
+
+      const repsArray = setDetails.map(s => s.reps === null ? null : s.reps);
+      const lastWeight = setDetails.slice().reverse().find(s => s.weight !== null && s.weight !== undefined)?.weight ?? null;
+
+      const payload = {
+        session_id: sessionId,
+        exercise_id: entry.exercise_id,
+        planned_sets: entry.planned_sets,
+        planned_reps: entry.planned_reps,
+        actual_sets: setDetails.filter(s => s.reps !== null && s.reps !== undefined).length,
+        weight_used: lastWeight,
+        weight_unit: 'kg',
+        reps_completed: JSON.stringify(repsArray),
+        set_details: JSON.stringify(setDetails),
+        notes: entry.notes?.trim() || null,
+      };
+
+      const { error: insertErr } = await supabase.from('workout_progress_entries').insert(payload);
+      if (insertErr) throw insertErr;
+
+      setSavedExercises(prev => ({ ...prev, [exerciseId]: true }));
+      toast.success('Exercise saved');
+    } catch (err:any) {
+      console.error(err);
+      toast.error(err?.message || 'Failed to save exercise');
+    }
+    setSavingExerciseId(null);
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -489,44 +672,7 @@ export default function ProgressLogger() {
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser(); if (!user) throw new Error('Not authed');
-
-      // 1) Try to find an existing session for this user/plan/day/date
-      const { data: existingSessions, error: findErr } = await supabase
-        .from('workout_progress_sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_type', selectedPlanType)
-        .eq('plan_id', selectedPlan.id)
-        .eq('day_identifier', selectedDay)
-        .eq('workout_date', workoutDate)
-        .limit(1);
-
-      if (findErr) throw findErr;
-
-      let sessionId: string;
-
-      if (existingSessions && existingSessions.length > 0) {
-        // reuse the existing session
-        sessionId = existingSessions[0].id;
-        // Optionally update session notes/updated_at if you want:
-        // await supabase.from('workout_progress_sessions').update({ notes: sessionNotes || null }).eq('id', sessionId);
-      } else {
-        // create a new session
-        const { data: insertedSession, error: sessionError } = await supabase
-          .from('workout_progress_sessions')
-          .insert({
-            user_id: user.id,
-            plan_type: selectedPlanType,
-            plan_id: selectedPlan.id,
-            day_identifier: selectedDay,
-            workout_date: workoutDate,
-            notes: sessionNotes.trim() || null,
-          })
-          .select()
-          .single();
-        if (sessionError) throw sessionError;
-        sessionId = insertedSession.id;
-      }
+      const sessionId = await findOrCreateSession(user.id);
 
       // 2) Remove any existing entries for that session (so we replace them)
       const { error: deleteErr } = await supabase
@@ -573,7 +719,7 @@ export default function ProgressLogger() {
       }
 
       toast.success('Progress saved');
-      setProgressEntries({}); setSessionNotes(''); setSelectedPlan(null); setSelectedPlanType(null); setSelectedDay(''); setPlanExercises([]);
+      setProgressEntries({}); setSessionNotes(''); setSelectedPlan(null); setSelectedPlanType(null); setSelectedDay(''); setPlanExercises([]); setSavedExercises({});
     } catch (err:any) { console.error(err); toast.error(err?.message || 'Save failed'); }
     setSaving(false);
   };
@@ -964,18 +1110,61 @@ export default function ProgressLogger() {
                                   transition={{ duration: 0.22 }}
                                 >
                                   <Card><CardContent className="p-4 sm:p-6">
-                                    <div className="flex items-start gap-4 mb-4"><img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/80/000000/FFFFFF?text=${(exercise as any).exercise.name?.charAt(0)||''}`} alt={(exercise as any).exercise.name} className="w-20 h-20 rounded-lg object-cover border"/><div className="flex-1"><h4 className="text-lg font-semibold">{(exercise as any).exercise.name}</h4><p className="text-sm text-muted-foreground capitalize">{((exercise as any).exercise.muscle_group||'').replace('_',' ')}</p><div className="flex gap-2 mt-2"><Badge variant="outline">Planned: {(exercise as any).sets} sets × {(exercise as any).reps} reps</Badge></div></div></div>
-
-                                    <div className="space-y-3">{(progress.set_details||[]).map((s, idx)=> (
-                                      <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                                        <div className="sm:col-span-2"><Label>Set {idx+1}</Label></div>
-                                        <div className="sm:col-span-4"><Label htmlFor={`weight-${exercise.exercise_id}-${idx}`}>Weight</Label><Input id={`weight-${exercise.exercise_id}-${idx}`} inputMode="decimal" type="number" step="0.5" value={s.weight ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { weight: e.target.value ? parseFloat(e.target.value) : null })} className="mt-1"/></div>
-                                        <div className="sm:col-span-4"><Label htmlFor={`reps-${exercise.exercise_id}-${idx}`}>Reps</Label><Input id={`reps-${exercise.exercise_id}-${idx}`} inputMode="numeric" type="number" min={0} value={s.reps ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { reps: e.target.value ? parseInt(e.target.value) : null })} className="mt-1"/></div>
-                                        <div className="sm:col-span-2 flex sm:justify-end">{idx===(progress.set_details||[]).length-1 && <Button size="sm" onClick={()=>addSetToExercise(exercise.exercise_id)} className="mt-1 w-full sm:w-auto">Add Set</Button>}</div>
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+                                      <div className="flex items-start gap-4 flex-1">
+                                        <img src={(exercise as any).exercise.image_url || `https://via.placeholder.com/80/000000/FFFFFF?text=${(exercise as any).exercise.name?.charAt(0)||''}`} alt={(exercise as any).exercise.name} className="w-20 h-20 rounded-lg object-cover border"/>
+                                        <div className="flex-1">
+                                          <h4 className="text-lg font-semibold">{(exercise as any).exercise.name}</h4>
+                                          <p className="text-sm text-muted-foreground capitalize">{((exercise as any).exercise.muscle_group||'').replace('_',' ')}</p>
+                                          <div className="flex gap-2 mt-2"><Badge variant="outline">Planned: {(exercise as any).sets} sets × {(exercise as any).reps} reps</Badge></div>
+                                        </div>
                                       </div>
-                                    ))}</div>
+                                      <div className="flex items-center gap-2 sm:self-start">
+                                        {savedExercises[exercise.exercise_id] && (
+                                          <Badge variant="secondary" className="border-emerald-200 text-emerald-700 bg-emerald-50">Saved</Badge>
+                                        )}
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={()=>handleSaveExercise(exercise.exercise_id)}
+                                          disabled={savingExerciseId===exercise.exercise_id || saving}
+                                        >
+                                          {savingExerciseId===exercise.exercise_id ? 'Saving...' : (<><Save className="w-4 h-4 mr-2"/>Save exercise</>)}
+                                        </Button>
+                                      </div>
+                                    </div>
 
-                                    <div className="mt-4"><Label htmlFor={`notes-${exercise.exercise_id}`}>Exercise Notes (Optional)</Label><Textarea id={`notes-${exercise.exercise_id}`} value={progress.notes} onChange={(e)=> setProgressEntries(prev=>({ ...prev, [exercise.exercise_id]: { ...prev[exercise.exercise_id], notes: e.target.value } }))} rows={2} className="mt-1"/></div>
+                                    <div className="space-y-3">{(progress.set_details||[]).map((s, idx)=> {
+                                      const best = bestSetsByExercise[exercise.exercise_id]?.[idx];
+                                      const bestWeight = typeof best?.weight === 'number' ? best.weight : null;
+                                      const bestReps = typeof best?.reps === 'number' ? best.reps : null;
+                                      const bestScore = (bestWeight || 0) * (bestReps || 0);
+                                      const currentScore = (s.weight || 0) * (s.reps || 0);
+                                      const ahead = bestScore > 0 && currentScore > bestScore;
+                                      const toBeat = Math.max(0, bestScore - currentScore);
+
+                                      return (
+                                        <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                          <div className="sm:col-span-2"><Label>Set {idx+1}</Label></div>
+                                          <div className="sm:col-span-3"><Label htmlFor={`weight-${exercise.exercise_id}-${idx}`}>Weight</Label><Input id={`weight-${exercise.exercise_id}-${idx}`} inputMode="decimal" type="number" step="0.5" value={s.weight ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { weight: e.target.value ? parseFloat(e.target.value) : null })} className="mt-1"/></div>
+                                          <div className="sm:col-span-3"><Label htmlFor={`reps-${exercise.exercise_id}-${idx}`}>Reps</Label><Input id={`reps-${exercise.exercise_id}-${idx}`} inputMode="numeric" type="number" min={0} value={s.reps ?? ''} onChange={(e)=> updateSetDetail(exercise.exercise_id, idx, { reps: e.target.value ? parseInt(e.target.value) : null })} className="mt-1"/></div>
+                                          <div className="sm:col-span-3">
+                                            <div className="h-full rounded-md border border-primary/25 bg-primary/5 dark:bg-primary/10 px-3 py-2 flex flex-col gap-1">
+                                              <div className="flex items-center gap-1 text-[11px] font-semibold text-primary uppercase tracking-wide">
+                                                <Trophy className="w-4 h-4"/>Personal best
+                                              </div>
+                                              <div className="text-sm font-mono text-foreground font-semibold">
+                                                {bestWeight ?? '—'} kg × {bestReps ?? '—'}
+                                              </div>
+                                              {bestScore === 0 && <div className="text-[11px] text-muted-foreground">Log this set to set your first benchmark.</div>}
+                                            </div>
+                                          </div>
+                                          <div className="sm:col-span-1 flex sm:justify-end">{idx===(progress.set_details||[]).length-1 && <Button size="sm" onClick={()=>addSetToExercise(exercise.exercise_id)} className="mt-1 w-full sm:w-auto">Add Set</Button>}</div>
+                                        </div>
+                                      );
+                                    })}</div>
+
+                                    <div className="mt-4"><Label htmlFor={`notes-${exercise.exercise_id}`}>Exercise Notes (Optional)</Label><Textarea id={`notes-${exercise.exercise_id}`} value={progress.notes} onChange={(e)=> { setProgressEntries(prev=>({ ...prev, [exercise.exercise_id]: { ...prev[exercise.exercise_id], notes: e.target.value } })); setSavedExercises(prev => { const next = { ...prev }; delete next[exercise.exercise_id]; return next; }); }} rows={2} className="mt-1"/></div>
 
                                   </CardContent></Card>
                                 </motion.div>
