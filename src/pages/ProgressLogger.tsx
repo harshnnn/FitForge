@@ -1368,7 +1368,17 @@ export default function ProgressLogger() {
                           <Select value={activeExerciseTab || undefined} onValueChange={(v)=>setActiveExerciseTab(v || null)}>
                             <SelectTrigger className="w-full"><SelectValue placeholder="Select exercise..."/></SelectTrigger>
                             <SelectContent>
-                              {planExercises.map(ex=> <SelectItem key={ex.exercise_id} value={ex.exercise_id}>{(ex as any).exercise.name}</SelectItem>)}
+                              {planExercises.map(ex=> {
+                                const isSaved = !!savedExercises[ex.exercise_id];
+                                return (
+                                  <SelectItem key={ex.exercise_id} value={ex.exercise_id}>
+                                    <span className="flex items-center gap-2">
+                                      <span className="flex-1 text-left">{(ex as any).exercise.name}</span>
+                                      {isSaved && <CheckCircle className="w-4 h-4 text-green-600" aria-label="Saved" />}
+                                    </span>
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         </div>
