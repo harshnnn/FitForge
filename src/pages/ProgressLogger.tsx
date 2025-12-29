@@ -23,6 +23,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import ThreeScene from "@/components/ThreeScene";
 import { useMuscleData } from "@/hooks/useMuscleData";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Minimal types used in this file
 interface WorkoutPlan { id: string; name: string; days_per_week: number; description?: string }
@@ -42,6 +43,8 @@ const DAYS_OF_WEEK = [
   { value: "saturday", label: "Saturday" },
   { value: "sunday", label: "Sunday" },
 ];
+
+const dayFromDate = (dateStr: string) => format(new Date(dateStr), 'eeee').toLowerCase();
 
 export default function ProgressLogger() {
   const { isAuthenticated } = useAuth();
@@ -66,7 +69,8 @@ export default function ProgressLogger() {
   const [progressEntries, setProgressEntries] = useState<Record<string, ProgressEntry>>({});
   const [sessionNotes, setSessionNotes] = useState("");
   const [workoutDate, setWorkoutDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
-  const [loading, setLoading] = useState(false);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [loadingExercises, setLoadingExercises] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingExerciseId, setSavingExerciseId] = useState<string | null>(null);
   const [savedExercises, setSavedExercises] = useState<Record<string, boolean>>({});
@@ -77,6 +81,74 @@ export default function ProgressLogger() {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const { prettify } = useMuscleData();
   const [activeMuscle, setActiveMuscle] = useState<string | null>(null);
+
+  const HistoryOverviewSkeleton = () => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="p-4 rounded-2xl border border-border/40 bg-muted/20 space-y-3">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-3 w-28" />
+        </div>
+      ))}
+    </div>
+  );
+
+  const HistoryTimelineSkeleton = () => (
+    <div className="space-y-4">
+      {Array.from({ length: 2 }).map((_, idx) => (
+        <div key={idx} className="p-4 rounded-xl border border-border/40 bg-muted/10 space-y-3">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-4 w-32" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {Array.from({ length: 2 }).map((_, j) => (
+              <div key={j} className="p-3 rounded-lg border border-border/30 bg-background/60 space-y-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-10" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const PlanSelectionSkeleton = () => (
+    <Card className="mb-8 border-border/40 shadow-lg">
+      <CardHeader>
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-4 w-64" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-2/3" />
+      </CardContent>
+    </Card>
+  );
+
+  const ExerciseLoadingSkeleton = () => (
+    <div className="space-y-4">
+      <Skeleton className="h-6 w-40" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Card key={i} className="border-border/40 shadow-sm">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-12 w-12 rounded" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </div>
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
 
   const progressData = useMemo(() => {
     const empty = {
@@ -202,7 +274,7 @@ export default function ProgressLogger() {
 
   useEffect(() => {
     const loadPlans = async () => {
-      setLoading(true);
+      setLoadingPlans(true);
       try {
         const { data: plans } = await supabase.from('workout_plans').select('*').order('name');
         setWorkoutPlans(plans || []);
@@ -228,7 +300,7 @@ export default function ProgressLogger() {
       } catch (err) {
         console.error(err);
       }
-      setLoading(false);
+      setLoadingPlans(false);
     };
     loadPlans();
   }, [isAuthenticated]);
@@ -282,8 +354,8 @@ export default function ProgressLogger() {
 
   useEffect(() => {
     const loadExercises = async () => {
-      if (!selectedPlan || !selectedDay) { setPlanExercises([]); setBestSetsByExercise({}); return; }
-      setLoading(true);
+      if (!selectedPlan || !selectedDay) { setPlanExercises([]); setBestSetsByExercise({}); setLoadingExercises(false); return; }
+      setLoadingExercises(true);
       try {
         let data: any = [];
         if (selectedPlanType === 'standard') {
@@ -401,10 +473,19 @@ export default function ProgressLogger() {
       } catch (err) {
         console.error(err);
       }
-      setLoading(false);
+      setLoadingExercises(false);
     };
     loadExercises();
   }, [selectedPlan, selectedDay, selectedPlanType]);
+
+  // keep custom plan day in sync with selected date, while allowing manual override
+  useEffect(()=>{
+    if (!selectedPlan || selectedPlanType !== 'custom') return;
+    const derivedDay = dayFromDate(workoutDate);
+    if (DAYS_OF_WEEK.find(d=>d.value===derivedDay) && derivedDay !== selectedDay) {
+      setSelectedDay(derivedDay);
+    }
+  }, [workoutDate, selectedPlan, selectedPlanType]);
 
   // detect overflow for chevrons
   useEffect(()=>{
@@ -491,8 +572,8 @@ export default function ProgressLogger() {
       const found = customPlans.find(p=>p.id===preferredPlan.id);
       if (found) {
         setSelectedPlanType('custom'); setSelectedPlan(found);
-        // default day
-        setSelectedDay('monday');
+        const derivedDay = dayFromDate(workoutDate);
+        setSelectedDay(DAYS_OF_WEEK.find(d=>d.value===derivedDay)?.value || 'monday');
       }
     } else {
       const found = workoutPlans.find(p=>p.id===preferredPlan.id);
@@ -547,7 +628,12 @@ export default function ProgressLogger() {
   const handlePlanSelect = (type: 'standard'|'custom', plan: any) => {
     setSelectedPlanType(type);
     setSelectedPlan(plan);
-    setSelectedDay('');
+    if (type === 'custom') {
+      const derivedDay = dayFromDate(workoutDate);
+      setSelectedDay(DAYS_OF_WEEK.find(d=>d.value===derivedDay)?.value || '');
+    } else {
+      setSelectedDay('');
+    }
     setPlanExercises([]);
     setProgressEntries({});
     setSavedExercises({});
@@ -755,7 +841,7 @@ export default function ProgressLogger() {
               </CardHeader>
               <CardContent>
                 {loadingSessions ? (
-                  <div className="text-center py-8">Loading...</div>
+                  <HistoryOverviewSkeleton />
                 ) : progressData.sessionRows.length === 0 ? (
                   <div className="text-center py-8">No sessions yet. Log a workout to see insights.</div>
                 ) : (
@@ -785,7 +871,14 @@ export default function ProgressLogger() {
               </CardContent>
             </Card>
 
-            {progressData.sessionRows.length > 0 && (
+            {loadingSessions ? (
+              <Card className="border-border/40 shadow-lg lg:col-span-3">
+                <CardContent className="py-8 space-y-4">
+                  <Skeleton className="h-6 w-48" />
+                  <Skeleton className="h-[260px] w-full" />
+                </CardContent>
+              </Card>
+            ) : progressData.sessionRows.length > 0 && (
               <div className="grid lg:grid-cols-3 gap-6">
                 <Card className="lg:col-span-2 border-border/40 shadow-lg">
                   <CardHeader>
@@ -839,7 +932,17 @@ export default function ProgressLogger() {
               </div>
             )}
 
-            {progressData.muscleStats.length > 0 && (
+            {loadingSessions ? (
+              <Card className="border-border/40 shadow-lg">
+                <CardContent className="space-y-4 py-6">
+                  <Skeleton className="h-6 w-40" />
+                  <Skeleton className="h-[340px] w-full" />
+                  <div className="space-y-2">
+                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : progressData.muscleStats.length > 0 && (
               <Card className="border-border/40 shadow-lg">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2"><Target className="w-5 h-5"/> Muscle Focus</CardTitle>
@@ -888,7 +991,17 @@ export default function ProgressLogger() {
               </Card>
             )}
 
-            {progressData.sessionRows.length > 0 && (
+            {loadingSessions ? (
+              <Card className="border-border/40 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Calendar className="w-5 h-5"/> Session Timeline</CardTitle>
+                  <CardDescription>Detailed log of your latest sessions</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <HistoryTimelineSkeleton />
+                </CardContent>
+              </Card>
+            ) : progressData.sessionRows.length > 0 && (
               <Card className="border-border/40 shadow-lg">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2"><Calendar className="w-5 h-5"/> Session Timeline</CardTitle>
@@ -945,44 +1058,48 @@ export default function ProgressLogger() {
         {activeTab === 'log' ? (
 
         <>
-        <Card className="mb-8 border-border/40 shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Target className="w-5 h-5"/> Select Workout Plan</CardTitle>
-            <CardDescription>Choose the plan you followed today</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4 mb-4">
-              {/* Preferred plan preview / CTA */}
-              {preferredPlan.id ? (
-                <Card className="p-3 border-primary/20 ring-1 ring-primary/10">
-                  <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        {loadingPlans ? (
+          <PlanSelectionSkeleton />
+        ) : (
+          <Card className="mb-8 border-border/40 shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Target className="w-5 h-5"/> Select Workout Plan</CardTitle>
+              <CardDescription>Choose the plan you followed today</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4 mb-4">
+                {/* Preferred plan preview / CTA */}
+                {preferredPlan.id ? (
+                  <Card className="p-3 border-primary/20 ring-1 ring-primary/10">
+                    <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Logging into</div>
+                        <div className="text-lg font-extrabold">{(preferredPlan.type === 'custom' ? customPlans.find(p=>p.id===preferredPlan.id)?.name : workoutPlans.find(p=>p.id===preferredPlan.id)?.name) || 'Preferred Program'}</div>
+                        <div className="text-sm text-muted-foreground">You can change this below</div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                        <Button variant="outline" onClick={()=>setShowPreferredModal(true)} className="w-full sm:w-auto">Change</Button>
+                        <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse plans</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border border-dashed rounded">
                     <div>
-                      <div className="text-sm text-muted-foreground">Logging into</div>
-                      <div className="text-lg font-extrabold">{(preferredPlan.type === 'custom' ? customPlans.find(p=>p.id===preferredPlan.id)?.name : workoutPlans.find(p=>p.id===preferredPlan.id)?.name) || 'Preferred Program'}</div>
-                      <div className="text-sm text-muted-foreground">You can change this below</div>
+                      <div className="text-sm text-muted-foreground">No preferred program</div>
+                      <div className="text-lg font-extrabold">Select a preferred program to log into by default</div>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                      <Button variant="outline" onClick={()=>setShowPreferredModal(true)} className="w-full sm:w-auto">Change</Button>
-                      <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse plans</Button>
+                      <Button onClick={()=>setShowPreferredModal(true)} className="bg-gradient-to-r from-purple-600 to-pink-600 w-full sm:w-auto">Choose Preferred</Button>
+                      <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse all</Button>
                     </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border border-dashed rounded">
-                  <div>
-                    <div className="text-sm text-muted-foreground">No preferred program</div>
-                    <div className="text-lg font-extrabold">Select a preferred program to log into by default</div>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                    <Button onClick={()=>setShowPreferredModal(true)} className="bg-gradient-to-r from-purple-600 to-pink-600 w-full sm:w-auto">Choose Preferred</Button>
-                    <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse all</Button>
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {selectedPlan && (
           <Card className="mb-8 border-border/40 shadow-lg">
@@ -1035,7 +1152,7 @@ export default function ProgressLogger() {
 
               {selectedDay && (
                 <div className="space-y-6">
-                  {loading ? <div className="text-center py-8">Loading exercises...</div> : planExercises.length>0 ? (
+                  {loadingExercises ? <ExerciseLoadingSkeleton /> : planExercises.length>0 ? (
                     <>
                       <h3 className="text-xl font-semibold">Exercises Completed</h3>
                       <div>
