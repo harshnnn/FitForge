@@ -13,7 +13,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash, Trophy } from "lucide-react";
+import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash, Trophy, PartyPopper } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
@@ -81,6 +81,17 @@ export default function ProgressLogger() {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const { prettify } = useMuscleData();
   const [activeMuscle, setActiveMuscle] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<{ title: string; detail?: string } | null>(null);
+
+  const celebratePersonalBest = (exerciseName: string) => {
+    setCelebration({ title: 'New Personal Best!', detail: `${exerciseName} just surpassed your previous high.` });
+  };
+
+  useEffect(() => {
+    if (!celebration) return;
+    const t = setTimeout(() => setCelebration(null), 3200);
+    return () => clearTimeout(t);
+  }, [celebration]);
 
   const HistoryOverviewSkeleton = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -693,6 +704,13 @@ export default function ProgressLogger() {
     const hasAny = setDetails.some(s=> (s.reps !== null && s.reps !== undefined) || (s.weight !== null && s.weight !== undefined));
     if (!hasAny) { toast.error('Log at least one set for this exercise'); return; }
 
+    const bestForExercise = bestSetsByExercise[exerciseId] || [];
+    const hasNewBest = setDetails.some((sd, idx) => {
+      const score = (sd.weight || 0) * (sd.reps || 0);
+      const prev = (bestForExercise[idx]?.weight || 0) * (bestForExercise[idx]?.reps || 0);
+      return score > prev && score > 0;
+    });
+
     setSavingExerciseId(exerciseId);
     try {
       const { data: { user } } = await supabase.auth.getUser(); if (!user) throw new Error('Not authed');
@@ -718,6 +736,24 @@ export default function ProgressLogger() {
 
       const { error: insertErr } = await supabase.from('workout_progress_entries').insert(payload);
       if (insertErr) throw insertErr;
+
+      if (hasNewBest) {
+        setBestSetsByExercise(prev => {
+          const next = { ...prev } as Record<string, { weight: number | null; reps: number | null }[]>;
+          const current = next[exerciseId] ? [...next[exerciseId]] : [];
+          setDetails.forEach((sd, idx) => {
+            const score = (sd.weight || 0) * (sd.reps || 0);
+            const prevScore = ((current[idx]?.weight || 0) * (current[idx]?.reps || 0));
+            if (score > prevScore) {
+              current[idx] = { weight: sd.weight ?? null, reps: sd.reps ?? null };
+            }
+          });
+          next[exerciseId] = current;
+          return next;
+        });
+        const exerciseName = planExercises.find(ex => ex.exercise_id === exerciseId)?.exercise?.name || 'Exercise';
+        celebratePersonalBest(exerciseName);
+      }
 
       setSavedExercises(prev => ({ ...prev, [exerciseId]: true }));
       toast.success('Exercise saved');
@@ -814,6 +850,32 @@ export default function ProgressLogger() {
 
   return (
     <Layout>
+
+      <AnimatePresence>
+        {celebration && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.25 }}
+            className="pointer-events-none fixed top-6 left-0 right-0 z-50 flex justify-center px-4"
+          >
+            <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-primary/30 bg-background/95 shadow-2xl ring-1 ring-primary/20 backdrop-blur-md">
+              <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_35%)]" aria-hidden />
+              <div className="flex items-center gap-3 px-4 py-3">
+                <div className="p-2 rounded-full bg-primary/20 border border-primary/30 text-primary">
+                  <PartyPopper className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-semibold text-primary">{celebration.title}</div>
+                  {celebration.detail && <div className="text-sm text-muted-foreground">{celebration.detail}</div>}
+                </div>
+                <Badge variant="secondary" className="bg-primary text-primary-foreground shadow-sm border-primary/60">Personal Best</Badge>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ARIA live region for announcing active exercise changes to screen readers */}
       <div aria-live="polite" className="sr-only" role="status">{announce}</div>
