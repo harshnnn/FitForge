@@ -13,6 +13,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Calendar, Target, TrendingUp, Save, CheckCircle, Dumbbell, Clock, ChevronLeft, ChevronRight, Trash, Trophy, PartyPopper, Plus, Search } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -87,6 +88,7 @@ export default function ProgressLogger() {
   const [searchResults, setSearchResults] = useState<Exercise[]>([]);
   const [searchingExercises, setSearchingExercises] = useState(false);
   const [searchNotice, setSearchNotice] = useState<string | null>(null);
+  const [planSheetOpen, setPlanSheetOpen] = useState(false);
 
   const celebratePersonalBest = (exerciseName: string) => {
     setCelebration({ title: 'New Personal Best!', detail: `${exerciseName} just surpassed your previous high.` });
@@ -681,6 +683,48 @@ export default function ProgressLogger() {
     return DAYS_OF_WEEK;
   }, [selectedPlan, selectedPlanType]);
 
+  const renderPlanSelectionBody = () => (
+    <div className="space-y-4 mb-4">
+      {/* Preferred plan preview / CTA */}
+      {preferredPlan.id ? (
+        <Card className="p-3 border-primary/20 ring-1 ring-primary/10">
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-sm text-muted-foreground">Logging into</div>
+                <div className="text-lg font-extrabold">{(preferredPlan.type === 'custom' ? customPlans.find(p=>p.id===preferredPlan.id)?.name : workoutPlans.find(p=>p.id===preferredPlan.id)?.name) || 'Preferred Program'}</div>
+              </div>
+              <Button variant="ghost" size="sm" className="h-8 px-3 text-xs" onClick={()=>setShowPreferredModal(true)}>Change</Button>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Button variant="outline" size="sm" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse plans</Button>
+              <div className="text-xs text-muted-foreground sm:hidden">Adjust anytime from the Change button.</div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border border-dashed rounded">
+          <div>
+            <div className="text-sm text-muted-foreground">No preferred program</div>
+            <div className="text-lg font-extrabold">Select a preferred program to log into by default</div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button size="sm" onClick={()=>setShowPreferredModal(true)} className="bg-gradient-to-r from-purple-600 to-pink-600 w-full sm:w-auto">Choose Preferred</Button>
+            <Button variant="ghost" size="sm" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse all</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const mobilePlanLabel = selectedPlan?.name
+    || (preferredPlan.id
+      ? ((preferredPlan.type === 'custom'
+          ? customPlans.find(p=>p.id===preferredPlan.id)?.name
+          : workoutPlans.find(p=>p.id===preferredPlan.id)?.name)
+         || 'Preferred plan')
+      : 'Select plan');
+
   const handlePlanSelect = (type: 'standard'|'custom', plan: any) => {
     setSelectedPlanType(type);
     setSelectedPlan(plan);
@@ -1020,13 +1064,39 @@ export default function ProgressLogger() {
       {/* ARIA live region for announcing active exercise changes to screen readers */}
       <div aria-live="polite" className="sr-only" role="status">{announce}</div>
 
-      <div className="text-center mb-8">
+      {/* Compact mobile header */}
+      <div className="sm:hidden mb-4 flex items-center justify-between rounded-xl border border-border/50 bg-muted/20 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-gradient-accent/80 text-primary-foreground"><TrendingUp className="w-4 h-4"/></div>
+          <div>
+            <div className="text-sm font-semibold">Log your progress</div>
+            <div className="text-xs text-muted-foreground">Fast, focused mobile flow</div>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-[11px] h-12 px-3 rounded-full bg-primary/10 text-primary font-semibold hover:bg-primary/15"
+          onClick={()=>setPlanSheetOpen(true)}
+          aria-label="Select workout plan"
+        >
+          <div className="flex items-center gap-2">
+            <div className="flex flex-col text-left leading-tight">
+              <span className="text-[10px] uppercase tracking-wide text-primary/80">Current plan</span>
+              <span className="max-w-[130px] truncate text-xs font-semibold text-primary">{mobilePlanLabel}</span>
+            </div>
+            <ChevronRight className="w-4 h-4" aria-hidden />
+          </div>
+        </Button>
+      </div>
+
+      <div className="hidden sm:block text-center mb-8">
           <div className="flex justify-center mb-4"><div className="p-4 bg-gradient-accent rounded-full"><TrendingUp className="w-8 h-8"/></div></div>
           <h1 className="text-4xl font-bold mb-2">Log Your Progress</h1>
           <p className="text-muted-foreground">Track your workout progress and see your gains over time</p>
         </div>
 
-      <div className="container mx-auto max-w-6xl px-4 py-8">
+      <div className="container mx-auto max-w-6xl px-3 py-6 sm:px-4 sm:py-8">
         <div className="flex justify-center mb-8 px-2">
           <div className="inline-flex flex-wrap items-center justify-center gap-2 rounded-full bg-muted/20 p-1 w-full sm:w-auto">
             <button className={`px-6 py-2 rounded-full font-semibold flex-1 sm:flex-none ${activeTab==='log'?'bg-background text-primary shadow':'text-muted-foreground'}`} onClick={()=>setActiveTab('log')}>Log Progress</button>
@@ -1261,46 +1331,35 @@ export default function ProgressLogger() {
 
         <>
         {loadingPlans ? (
-          <PlanSelectionSkeleton />
-        ) : (
-          <Card className="mb-8 border-border/40 shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Target className="w-5 h-5"/> Select Workout Plan</CardTitle>
-              <CardDescription>Choose the plan you followed today</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4 mb-4">
-                {/* Preferred plan preview / CTA */}
-                {preferredPlan.id ? (
-                  <Card className="p-3 border-primary/20 ring-1 ring-primary/10">
-                    <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div>
-                        <div className="text-sm text-muted-foreground">Logging into</div>
-                        <div className="text-lg font-extrabold">{(preferredPlan.type === 'custom' ? customPlans.find(p=>p.id===preferredPlan.id)?.name : workoutPlans.find(p=>p.id===preferredPlan.id)?.name) || 'Preferred Program'}</div>
-                        <div className="text-sm text-muted-foreground">You can change this below</div>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                        <Button variant="outline" onClick={()=>setShowPreferredModal(true)} className="w-full sm:w-auto">Change</Button>
-                        <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse plans</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border border-dashed rounded">
-                    <div>
-                      <div className="text-sm text-muted-foreground">No preferred program</div>
-                      <div className="text-lg font-extrabold">Select a preferred program to log into by default</div>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                      <Button onClick={()=>setShowPreferredModal(true)} className="bg-gradient-to-r from-purple-600 to-pink-600 w-full sm:w-auto">Choose Preferred</Button>
-                      <Button variant="ghost" onClick={()=>navigate('/workouts')} className="w-full sm:w-auto">Browse all</Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+          <div className="hidden sm:block"><PlanSelectionSkeleton /></div>
+        ) : null}
 
-            </CardContent>
-          </Card>
+        {!loadingPlans && (
+          <>
+            {/* Desktop: keep full card in layout */}
+            <div className="hidden sm:block">
+              <Card className="mb-8 border-border/40 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Target className="w-5 h-5"/> Select Workout Plan</CardTitle>
+                  <CardDescription>Choose the plan you followed today</CardDescription>
+                </CardHeader>
+                <CardContent>{renderPlanSelectionBody()}</CardContent>
+              </Card>
+            </div>
+
+            {/* Mobile: open plan selection via top-right "live" trigger in header */}
+            <div className="sm:hidden">
+              <Sheet open={planSheetOpen} onOpenChange={setPlanSheetOpen}>
+                <SheetContent side="bottom" className="pb-8 pt-4 max-h-[85vh] overflow-y-auto">
+                  <SheetHeader>
+                    <SheetTitle className="flex items-center gap-2"><Target className="w-5 h-5"/> Select Workout Plan</SheetTitle>
+                    <SheetDescription>Pick the plan for today; you can always change it later.</SheetDescription>
+                  </SheetHeader>
+                  <div className="mt-4">{renderPlanSelectionBody()}</div>
+                </SheetContent>
+              </Sheet>
+            </div>
+          </>
         )}
 
         {selectedPlan && (
@@ -1459,7 +1518,7 @@ export default function ProgressLogger() {
                                           <div className="flex gap-2 mt-2"><Badge variant="outline">Planned: {(exercise as any).sets} sets × {(exercise as any).reps} reps</Badge></div>
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-2 sm:self-start">
+                                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-end gap-2 sm:self-start w-full sm:w-auto">
                                         {savedExercises[exercise.exercise_id] && (
                                           <Badge variant="secondary" className="border-emerald-200 text-emerald-700 bg-emerald-50">Saved</Badge>
                                         )}
@@ -1467,7 +1526,7 @@ export default function ProgressLogger() {
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="text-red-600"
+                                            className="text-red-600 w-full sm:w-auto"
                                             onClick={()=>handleRemoveAlternateExercise(exercise.exercise_id)}
                                           >
                                             Remove
@@ -1476,6 +1535,7 @@ export default function ProgressLogger() {
                                         <Button
                                           variant="outline"
                                           size="sm"
+                                          className="w-full sm:w-auto"
                                           onClick={()=>handleSaveExercise(exercise.exercise_id)}
                                           disabled={savingExerciseId===exercise.exercise_id || saving}
                                         >
