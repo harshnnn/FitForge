@@ -1031,22 +1031,31 @@ const WorkoutsPage = () => {
             </div>
 
             {/* Create Custom Plan Button */}
-            {isAuthenticated && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.5 }}
-                className="flex justify-center mb-8"
-              >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.5 }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8"
+            >
+              {isAuthenticated && (
                 <Button
                   onClick={() => navigate('/create-plan')}
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-3 rounded-full font-semibold shadow-lg hover:shadow-xl transition-all duration-300"
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-3 rounded-full font-semibold shadow-lg hover:shadow-xl transition-all duration-300 w-full sm:w-auto"
                 >
                   <Plus className="w-5 h-5 mr-2" />
                   Create Custom Plan
                 </Button>
-              </motion.div>
-            )}
+              )}
+
+              <Button
+                variant="outline"
+                onClick={() => navigate('/import-plan')}
+                className="px-8 py-3 rounded-full font-semibold shadow hover:shadow-md transition-all duration-300 w-full sm:w-auto"
+              >
+                <Share2 className="w-5 h-5 mr-2" />
+                Import Shared Plan
+              </Button>
+            </motion.div>
 
             {shareLink && shareTargetPlan && (
               <Card className="mb-8 border-primary/40 shadow-lg">
@@ -1222,20 +1231,23 @@ const WorkoutsPage = () => {
                           <Badge className="bg-gradient-primary text-sm px-4 py-2 rounded-full shadow-md font-semibold">Personalized</Badge>
                         </div>
                         <div className="flex flex-col gap-3">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                            <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-2xl shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActiveCustomPlan(plan)}>
-                              <Eye className="w-5 h-5 mr-3" /> View Plan
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              className="flex-1 min-w-[140px] bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-2xl shadow-lg hover:shadow-xl group-hover:scale-105 justify-center text-sm"
+                              onClick={() => setActiveCustomPlan(plan)}
+                            >
+                              <Eye className="w-4 h-4 mr-2" /> View Plan
                             </Button>
                             <Button
                               variant="outline"
-                              className="w-full border-amber-300/60 hover:border-amber-400/90 rounded-2xl"
+                              className="flex-1 min-w-[140px] border-amber-300/60 hover:border-amber-400/90 rounded-2xl justify-center text-sm"
                               onClick={() => navigate(`/create-plan/${plan.id}`)}
                             >
                               Edit Plan
                             </Button>
                             <Button
                               variant="outline"
-                              className="w-full border-amber-300/60 hover:border-amber-400/90 rounded-2xl"
+                              className="flex-1 min-w-[140px] border-amber-300/60 hover:border-amber-400/90 rounded-2xl justify-center text-sm"
                               onClick={() => handleSharePlan(plan)}
                               disabled={shareGenerating === plan.id}
                             >
@@ -1243,7 +1255,7 @@ const WorkoutsPage = () => {
                             </Button>
                             <Button
                               variant="outline"
-                              className="w-full border-amber-300/60 hover:border-amber-400/90 rounded-2xl col-span-2 sm:col-span-1"
+                              className="flex-1 min-w-[140px] border-amber-300/60 hover:border-amber-400/90 rounded-2xl justify-center text-sm"
                               onClick={() => handleDeleteCustomPlan(plan.id)}
                               disabled={pendingDeleteId === plan.id}
                             >
