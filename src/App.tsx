@@ -18,6 +18,7 @@ import Supplements from "./pages/Supplements";
 import Community from "./pages/Community";
 import NotFound from "./pages/NotFound";
 import ProgressLogger from "./pages/ProgressLogger";
+import ImportPlan from "./pages/ImportPlan";
 
 const queryClient = new QueryClient();
 
@@ -125,6 +126,14 @@ const App = () => (
                 <AuthOnlyRoute>
                   <Community />
                 </AuthOnlyRoute>
+              }
+            />
+            <Route
+              path="/import-plan"
+              element={
+                <GuestAwareRoute>
+                  <ImportPlan />
+                </GuestAwareRoute>
               }
             />
             <Route path="*" element={<NotFound />} />

@@ -166,6 +166,44 @@ export type Database = {
         }
         Relationships: []
       }
+      shared_custom_plan_links: {
+        Row: {
+          created_at: string | null
+          created_by_user_id: string
+          expires_at: string | null
+          id: string
+          plan_snapshot: Json
+          token: string
+          user_custom_plan_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by_user_id: string
+          expires_at?: string | null
+          id?: string
+          plan_snapshot: Json
+          token: string
+          user_custom_plan_id: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by_user_id?: string
+          expires_at?: string | null
+          id?: string
+          plan_snapshot?: Json
+          token?: string
+          user_custom_plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_custom_plan_links_user_custom_plan_id_fkey"
+            columns: ["user_custom_plan_id"]
+            isOneToOne: false
+            referencedRelation: "user_custom_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_custom_plans: {
         Row: {
           created_at: string | null

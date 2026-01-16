@@ -6,7 +6,8 @@ import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dumbbell, Calendar, Target, X, Star, Video, Zap, Moon, Plus, User, Eye, Trash2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Dumbbell, Calendar, Target, X, Star, Video, Zap, Moon, Plus, User, Eye, Trash2, Share2, Clipboard, Link2 } from "lucide-react";
 import { Dialog, DialogContent, DialogClose } from "@/components/ui/dialog";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
@@ -644,6 +645,9 @@ const WorkoutsPage = () => {
   const { isAuthenticated } = useAuth();
   const [workoutPlans, setWorkoutPlans] = useState<WorkoutPlan[]>([]);
   const [customPlans, setCustomPlans] = useState<CustomPlan[]>([]);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [shareTargetPlan, setShareTargetPlan] = useState<CustomPlan | null>(null);
+  const [shareGenerating, setShareGenerating] = useState<string | null>(null);
   const [preferredPlan, setPreferredPlanState] = useState<{ type: 'standard' | 'custom' | null; id: string | null }>({ type: null, id: null });
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [selectedDays, setSelectedDays] = useState<number | null>(null);
@@ -670,6 +674,76 @@ const WorkoutsPage = () => {
       }
     };
   }, []);
+
+  const generateShareToken = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)).replace(/-/g, "");
+
+  const handleSharePlan = async (plan: CustomPlan) => {
+    try {
+      setShareGenerating(plan.id);
+      setShareLink(null);
+      setShareTargetPlan(null);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("Sign in to share plans");
+        navigate("/auth");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("user_custom_plan_exercises")
+        .select("day_of_week, sets, reps, notes, exercise:exercises(id, name, muscle_group, image_url, description)")
+        .eq("user_custom_plan_id", plan.id)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      const snapshot = {
+        name: plan.name,
+        description: plan.description,
+        exercises: (data || []).map((row: any) => ({
+          day_of_week: row.day_of_week,
+          sets: row.sets,
+          reps: row.reps,
+          notes: row.notes,
+          exercise_id: row.exercise?.id,
+          exercise_name: row.exercise?.name,
+          muscle_group: row.exercise?.muscle_group,
+          image_url: row.exercise?.image_url,
+          exercise_description: row.exercise?.description,
+        })),
+      };
+
+      const token = generateShareToken();
+      const { data: inserted, error: insertError } = await supabase
+        .from("shared_custom_plan_links")
+        .insert({
+          token,
+          user_custom_plan_id: plan.id,
+          created_by_user_id: user.id,
+          plan_snapshot: snapshot,
+        })
+        .select("token")
+        .single();
+
+      if (insertError) throw insertError;
+
+      const link = `${window.location.origin}/import-plan?token=${inserted.token}`;
+      setShareLink(link);
+      setShareTargetPlan(plan);
+      try {
+        await navigator.clipboard.writeText(link);
+        toast.success("Share link generated and copied!");
+      } catch {
+        toast.success("Share link generated");
+      }
+    } catch (err: any) {
+      console.error("Error sharing plan", err);
+      toast.error(err?.message || "Could not create share link");
+    } finally {
+      setShareGenerating(null);
+    }
+  };
 
   const setPreferredPlan = async (type: 'standard' | 'custom', id: string) => {
     // optimistic UI update
@@ -974,6 +1048,41 @@ const WorkoutsPage = () => {
               </motion.div>
             )}
 
+            {shareLink && shareTargetPlan && (
+              <Card className="mb-8 border-primary/40 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Share2 className="w-5 h-5" />
+                    Share link ready for {shareTargetPlan.name}
+                  </CardTitle>
+                  <CardDescription>Anyone with this link can open and import your plan.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input readOnly value={shareLink} className="flex-1" />
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(shareLink);
+                          toast.success('Link copied');
+                        } catch {
+                          toast.error('Copy failed');
+                        }
+                      }} className="gap-2">
+                        <Clipboard className="w-4 h-4" /> Copy
+                      </Button>
+                      <Button variant="secondary" onClick={() => window.open(shareLink, '_blank')} className="gap-2">
+                        <Link2 className="w-4 h-4" /> Open
+                      </Button>
+                    </div>
+                  </div>
+                  <Button variant="ghost" className="px-0" onClick={() => { setShareLink(null); setShareTargetPlan(null); }}>
+                    Dismiss
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Preferred Program Preview (placed between Create and Filters) */}
             {preferredPlan.id && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-8">
@@ -1113,7 +1222,7 @@ const WorkoutsPage = () => {
                           <Badge className="bg-gradient-primary text-sm px-4 py-2 rounded-full shadow-md font-semibold">Personalized</Badge>
                         </div>
                         <div className="flex flex-col gap-3">
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                             <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white transition-all duration-200 font-bold py-3 rounded-2xl shadow-lg hover:shadow-xl group-hover:scale-105" onClick={() => setActiveCustomPlan(plan)}>
                               <Eye className="w-5 h-5 mr-3" /> View Plan
                             </Button>
@@ -1123,6 +1232,14 @@ const WorkoutsPage = () => {
                               onClick={() => navigate(`/create-plan/${plan.id}`)}
                             >
                               Edit Plan
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="w-full border-amber-300/60 hover:border-amber-400/90 rounded-2xl"
+                              onClick={() => handleSharePlan(plan)}
+                              disabled={shareGenerating === plan.id}
+                            >
+                              {shareGenerating === plan.id ? 'Creating...' : <span className="inline-flex items-center gap-2"><Share2 className="w-4 h-4" /> Share</span>}
                             </Button>
                             <Button
                               variant="outline"
